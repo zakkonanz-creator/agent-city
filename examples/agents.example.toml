@@ -1,0 +1,200 @@
+# Agent City config. Copy to agents.toml (git-ignored) and edit.
+#
+#   cp examples/agents.example.toml agents.toml
+#   python3 scan.py && python3 build.py --open
+#
+# The config says WHAT each agent is and WHERE to look. Whether it is installed,
+# when it last ran and whether that run went wrong are read off the machine at scan
+# time. Every key except id is optional; the more you give, the more the city knows.
+
+[city]
+name = "My Agent City"
+# Building size: "use" (runs in the last 7 days), "value" (the tier you declare),
+# or "blend" (both, the default).
+size_by = "blend"
+
+# Districts are blocks of up to 12 buildings. More than 12 spills into a second block.
+[[district]]
+id = "inbox"
+name = "Inbox"
+blurb = "Everything that talks to a person."
+
+[[district]]
+id = "research"
+name = "Research"
+blurb = "Reads the world and writes it down."
+
+[[district]]
+id = "ops"
+name = "Ops"
+blurb = "Backups, servers and the plumbing."
+
+# ---------------------------------------------------------------------------
+# Agents
+# ---------------------------------------------------------------------------
+
+# A cron job on this machine, with a log.
+[[agent]]
+id = "email-triage"
+district = "inbox"
+purpose = "Sorts new email and writes a shortlist of what needs a reply."
+cron = "email_triage.py"          # a substring of its `crontab -l` line: proves it is installed
+                                  # (and gives the schedule, if you leave `schedule` out)
+log = "~/agents/logs/email-triage.log"
+run_marker = "=== run start"      # a line each run prints; counts runs and scopes errors to the last run
+tier = 4                          # how much it matters, 1 (shed) to 5 (civic monument)
+writes = ["~/agents/notes/inbox/triage.md"]
+talks_to = ["Gmail"]              # outside services: drawn as piers on the shore
+watched = "output"                # does anything check it? none | runs | output
+
+# A macOS launchd agent. Exit code and schedule come from launchctl and the plist.
+[[agent]]
+id = "reply-drafter"
+district = "inbox"
+purpose = "Drafts replies for everything triage marked 'reply'. Never sends."
+launchd = "com.example.reply-drafter"
+log = "~/agents/logs/reply-drafter.log"
+error_log = "~/agents/logs/reply-drafter.err"
+reads = ["~/agents/notes/inbox/triage.md", "~/agents/notes/people/"]   # a road from email-triage
+writes = ["Gmail drafts"]
+talks_to = ["Gmail"]
+tier = 3
+
+# A Linux systemd user timer.
+[[agent]]
+id = "paper-digest"
+district = "research"
+purpose = "Summarises new papers from saved searches."
+systemd = "paper-digest.timer"
+schedule = "0 5 * * *"
+log = "~/agents/logs/paper-digest-*.log"   # a glob picks the newest file
+writes = ["~/agents/notes/reading/"]
+
+# A job on an always-on server, read over ssh (see [hosts] below).
+[[agent]]
+id = "backup"
+district = "ops"
+purpose = "Nightly encrypted backup of notes and reports."
+host = "homelab"
+cron = "backup.sh"
+log = "~/logs/backup.log"
+reads = ["~/agents/notes/", "~/agents/reports/"]
+tier = 5
+watched = "output"
+
+# A cloud service: up if its health URL answers 2xx/3xx.
+[[agent]]
+id = "webhook-relay"
+district = "ops"
+purpose = "Receives webhooks and fans them out."
+host = "cloud"
+schedule = "always-on"
+health_url = "https://example.com/health"
+talks_to = ["Stripe", "Slack"]
+
+# Any check you can write as a shell command: exit 0 = healthy.
+[[agent]]
+id = "uptime-pinger"
+district = "ops"
+purpose = "Pings public endpoints every 5 minutes."
+host = "cloud"
+schedule = "every 5m"
+check = "gh run list --workflow uptime.yml --limit 1 --json conclusion -q '.[0].conclusion' | grep -q success"
+
+# The watchdog gets drawn as a lighthouse.
+[[agent]]
+id = "watchdog"
+district = "ops"
+role = "watchdog"
+purpose = "Checks the other agents ran and their output looks right."
+cron = "watchdog.py"
+log = "~/agents/logs/watchdog.log"
+tier = 5
+
+# Switched off on purpose: drawn shuttered, never counted as broken.
+[[agent]]
+id = "social-poster"
+district = "inbox"
+purpose = "Posts approved clips."
+paused = "waiting on new brand guidelines"
+paused_since = "2026-01-05"
+resume = "crontab -e and uncomment social_poster"
+
+# Run by hand.
+[[agent]]
+id = "question-bank"
+district = "research"
+schedule = "manual"
+purpose = "Answers a research question with citations when you ask."
+log = "~/agents/logs/question-bank.log"
+
+# Other keys:
+#   name = "Pretty name"        defaults to id
+#   schedule = "*/15 * * * *"   cron, "every 30m", "hourly", "daily", "always-on", "manual"
+#   process = "worker.py"       a running process must match (resident jobs)
+#   error_pattern = "regex"     what counts as an error in the log (sensible default)
+#   ignore_exit = true          a non-zero exit is normal for this one
+#   stale_after_hours = 72      for jobs with no schedule: quiet longer than this = gone dark
+#   until = "2026-12-31"        after this date it is drawn dormant, not broken
+#   not_live = "why"            built but deliberately not switched on yet
+#   readme = "~/agents/x/README.md"   included in the "ask" prompt
+#   use = 40                    override the measured runs-per-week
+#   defined_in = "path"         shown in the inspector
+
+# ---------------------------------------------------------------------------
+# Shared stores: folders agents share, drawn as clouds that rain on their readers
+# ---------------------------------------------------------------------------
+[[store]]
+id = "notes"
+label = "Notes"
+path = "~/agents/notes"
+blurb = "what you and your agents know"
+
+[[store]]
+id = "reports"
+label = "Reports"
+path = "~/agents/reports"
+
+[brain]
+stale_days = 30          # files untouched this long count as "cold"
+
+# ---------------------------------------------------------------------------
+# Machines reached over ssh. One ssh call per host per scan (crontab, log stats
+# and tails, ps). Needs key-based auth: the scan runs with BatchMode=yes.
+# ---------------------------------------------------------------------------
+[hosts.homelab]
+ssh = "me@homelab.local"
+label = "homelab"
+
+# ---------------------------------------------------------------------------
+# Discovery: jobs on this machine that agents.toml does not mention become a finding.
+# ---------------------------------------------------------------------------
+[discover]
+cron = true
+launchd_prefixes = ["com.example."]    # only your own launchd labels
+ignore = ["brew", "softwareupdate"]
+
+# ---------------------------------------------------------------------------
+# The Yards: unfinished work, from project folders, Claude Code plans and open
+# Claude Code terminals. Turn it off with enabled = false.
+# ---------------------------------------------------------------------------
+[yards]
+enabled = true
+projects = ["~/code/*"]       # each matching folder is a plot
+claude_sessions = true        # read ~/.claude/sessions + transcripts (stays local)
+plans = true                  # ~/.claude/plans/*.md
+exclude = ["my-private-thing"]  # folder or plan names never drawn
+finish_days = 14
+decide_days = 56
+plan_days = 28
+
+# Per-million-token USD rates for the sunk-cost estimate. Set them to what you pay.
+[yards.rates]
+input = 5.0
+output = 25.0
+cache_read = 0.5
+cache_write = 6.25
+
+# Extra things to scrub from anything copied off the machine.
+[redact]
+patterns = ["ACME-[0-9]{6}"]

@@ -1,0 +1,9 @@
+# your setup and everything read off your machine
+agents.toml
+agents.json
+data/
+snapshots/
+dist/
+__pycache__/
+*.pyc
+.DS_Store

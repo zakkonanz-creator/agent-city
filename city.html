@@ -1,0 +1,3481 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent City</title>
+<style>
+  /* One committed visual world: a city at dusk. The whole page is a legend —
+     lit windows mean a job ran, dark means it stopped — so a light theme would
+     destroy the thing the design is for. Every colour is painted explicitly. */
+  :root{
+    --ground:#0a0c12; --panel:#12151d; --panel2:#171b25; --line:#242a38;
+    --ink:#e8eaf0; --dim:#8b93a7; --faint:#5a6275;
+    --green:#37ca37; --amber:#ffb74d; --red:#ff6b5e; --sky:#6fb6ff;
+    --mono:ui-monospace,SFMono-Regular,Menlo,"Cascadia Mono",monospace;
+    --sans:"Inter Tight",ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  html,body{height:100%}
+  body{margin:0;background:var(--ground);color:var(--ink);
+       font:14px/1.55 var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased}
+  *{box-sizing:border-box}
+  button,textarea{font:inherit}
+
+  #app{display:grid;grid-template-columns:288px minmax(0,1fr) 352px;height:100%}
+  /* the inspector only takes room while it has something to say */
+  body.noinsp #app{grid-template-columns:288px minmax(0,1fr) 0}
+  body.noinsp .col.right{display:none}
+  .hd .x{float:right;background:none;border:1px solid var(--line);border-radius:5px;
+         color:var(--dim);cursor:pointer;width:24px;height:24px;line-height:20px;padding:0;
+         font-size:15px;margin:-3px -4px 0 8px}
+  .hd .x:hover{color:var(--ink);border-color:#4a5468}
+  .col{background:var(--panel);display:flex;flex-direction:column;min-height:0;min-width:0}
+  .col.left{border-right:1px solid var(--line)}
+  .col.right{border-left:1px solid var(--line)}
+  .hd{padding:16px 18px 12px;border-bottom:1px solid var(--line);flex:none}
+  .hd h1{margin:0;font-size:14px;letter-spacing:.15em;text-transform:uppercase;font-weight:600}
+  .hd .sub{color:var(--faint);font-size:11.5px;margin-top:4px;line-height:1.45}
+  .scroll{overflow-y:auto;overflow-x:hidden;padding:12px 14px 44px;flex:1;min-height:0}
+  .scroll::-webkit-scrollbar{width:9px}
+  .scroll::-webkit-scrollbar-thumb{background:#242a38;border-radius:9px}
+  code{font:11.5px/1.4 var(--mono);color:#9fb0c9;background:#0c0f16;
+       padding:1px 4px;border-radius:3px;overflow-wrap:anywhere}
+  /* job names run long (nightly-invoice-reconcile-weekly); never let one widen the page */
+  .f b,.f span,.alert,.purpose,.writes li,dd{overflow-wrap:anywhere}
+  #app,.scroll{min-width:0}
+
+  /* --- City Hall: the findings rail --------------------------------- */
+  #q{width:100%;margin-top:10px;background:#0c0f16;border:1px solid var(--line);
+     border-radius:6px;color:var(--ink);padding:7px 10px;font-size:12.5px}
+  #q:focus{outline:none;border-color:#37ca3755}
+  #q::-webkit-search-cancel-button{filter:invert(.6)}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+  .chip{font-size:10.5px;padding:3px 9px;border-radius:99px;cursor:pointer;
+        border:1px solid var(--line);background:none;color:var(--dim)}
+  .chip[aria-pressed="true"]{color:var(--ink);border-color:#4a5468;background:#1d2230}
+  .chip .cn{color:var(--faint);margin-left:2px;font-variant-numeric:tabular-nums}
+  .chip:disabled{opacity:.4;cursor:default}
+  .chip:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+  /* one rail, three tabs: what happened, what needs a look, what is in progress */
+  .tabs{display:flex;gap:2px;margin-top:10px;background:#0c0f16;border:1px solid var(--line);
+        border-radius:8px;padding:3px}
+  .tabs button{flex:1;background:none;border:0;border-radius:6px;padding:6px 4px;font-size:12px;
+        color:var(--dim);cursor:pointer;white-space:nowrap}
+  .tabs button:hover{color:var(--ink)}
+  .tabs button[aria-selected="true"]{background:#1d2330;color:var(--ink)}
+  .tabs button:focus-visible{outline:2px solid var(--green);outline-offset:-2px}
+  .tabs .badge{font-size:10.5px;margin-left:3px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .tabs .badge.hot{color:var(--red)}
+  .pane{display:none} .pane.on{display:block}
+  /* the event feed, when it lives in the rail instead of floating on the map */
+  .col.left #feed{position:static!important;display:flex!important;width:auto!important;
+        background:none;border:0;border-radius:0;overflow:visible}
+  .col.left #feed .fh{padding:2px 4px 2px}
+  .col.left #feed .fh b{font-size:10px;letter-spacing:.17em;color:var(--faint);font-weight:400}
+  .col.left #feed .fsub{display:block!important;padding:0 4px 8px}
+  .col.left #flist{display:block!important;overflow:visible;padding:4px 0}
+  .col.left #flist li{padding:5px 4px;border-radius:5px}
+  .col.left #flist .day{padding:8px 4px 2px}
+  .col.left #freplay{display:inline-block!important}
+  .col.left #fmin,.col.left .ftick{display:none!important}
+  /* filters and every rail group fold away; the summary row carries the count */
+  .fdrop{margin-top:8px}
+  .fdrop>summary,.grp>summary{list-style:none;cursor:pointer;display:flex;align-items:center;
+       gap:8px}
+  .fdrop>summary::-webkit-details-marker,.grp>summary::-webkit-details-marker{display:none}
+  .fdrop>summary{font-size:11.5px;color:var(--dim);padding:5px 2px}
+  .fdrop>summary:hover,.grp>summary:hover{color:var(--ink)}
+  .fdrop>summary::before,.grp>summary::before{content:"\25B8";color:var(--faint);
+       font-size:10px;width:8px;transition:transform .12s}
+  .fdrop[open]>summary::before,.grp[open]>summary::before{transform:rotate(90deg)}
+  .fdrop>summary:focus-visible,.grp>summary:focus-visible{outline:2px solid var(--green);
+       outline-offset:1px;border-radius:4px}
+  #fcount{margin-left:auto;color:var(--faint)}
+  .fdrop .chips{margin-top:4px}
+  .grp>summary .n{margin-left:auto}
+  .grp>summary{color:var(--faint);justify-content:flex-start}
+  .tgroup{font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+          color:var(--faint);margin:9px 4px 6px}
+  .term{width:100%;text-align:left;border:1px solid var(--line);border-radius:5px;
+        padding:8px 11px;margin-bottom:6px;background:var(--panel2);cursor:pointer;
+        color:inherit;border-left:3px solid #3a4152}
+  .term.warm{border-left-color:var(--amber)}
+  .term:hover{border-color:#394052}
+  .term b{display:block;font-size:12.5px;font-weight:600;margin-bottom:2px;
+          line-height:1.35;overflow-wrap:anywhere}
+  .term span{display:block;font-size:11px;color:var(--dim)}
+  .term.nudge{border-left-color:var(--red)}
+  .triage-btn{width:100%;margin:2px 0 10px;padding:9px;border-radius:6px;cursor:pointer;
+    background:#ffb74d12;border:1px solid #ffb74d40;color:var(--amber);
+    font-weight:600;font-size:12px;text-align:left}
+  .triage-btn:hover{background:#ffb74d22}
+  .tri{border:1px solid var(--line);border-radius:6px;padding:10px 11px;margin-bottom:8px;
+       background:var(--panel2)}
+  .tri b{display:block;font-size:12.5px;margin-bottom:3px;overflow-wrap:anywhere}
+  .tri span{display:block;font-size:11px;color:var(--dim);margin-bottom:7px}
+  .tri-cmds{display:flex;flex-direction:column;gap:4px}
+  .tri-cmds code{font-size:10.5px;padding:4px 7px;display:block;overflow-wrap:anywhere}
+  .changed{border:1px solid #37ca3730;background:#37ca370a;border-radius:5px;
+           padding:8px 11px;margin-bottom:7px;font-size:11.5px;color:var(--dim);
+           cursor:pointer;width:100%;text-align:left}
+  .changed b{color:var(--ink);font-weight:600}
+  .fgroup{font-size:10px;letter-spacing:.17em;text-transform:uppercase;color:var(--faint);
+          margin:16px 4px 8px;display:flex;justify-content:space-between}
+  .fgroup:first-child{margin-top:2px}
+  .f{border:1px solid var(--line);border-left-width:3px;border-radius:5px;
+     padding:9px 11px;margin-bottom:7px;cursor:pointer;background:var(--panel2);
+     transition:border-color .12s,transform .12s;width:100%;text-align:left;color:inherit}
+  .f:hover,.f:focus-visible{transform:translateX(2px);border-color:#394052}
+  .f:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+  .f.crit{border-left-color:var(--red)}
+  .f.warn{border-left-color:var(--amber)}
+  .f.info{border-left-color:#49566e}
+  .f > b{display:block;font-weight:600;font-size:12.5px;margin-bottom:3px;line-height:1.35}
+  .f span{display:block;color:var(--dim);font-size:11.5px;line-height:1.45}
+  .f span b{display:inline;font-weight:600;color:#b9c2d2}
+  .alert b{color:#ffd2cb}
+
+  /* --- the city ------------------------------------------------------ */
+  #stage{position:relative;background:#0c1726;overflow:hidden;min-width:0}
+  canvas{display:block;position:absolute;inset:0;cursor:grab;touch-action:none}
+  canvas.drag{cursor:grabbing}
+  #topbar{position:absolute;top:16px;left:14px;right:14px;display:flex;gap:10px;
+          align-items:flex-start;pointer-events:none;z-index:3}
+  /* the counts are a dropdown: the headline four, the rest on demand */
+  #hud{pointer-events:auto;position:relative;font-size:12.5px;color:var(--dim);margin:0 auto}
+  #hud summary{list-style:none;cursor:pointer;display:flex;gap:14px;align-items:center;
+       white-space:nowrap;background:#0c0f16d9;border:1px solid var(--line);border-radius:99px;
+       padding:6px 14px}
+  #hud summary::-webkit-details-marker{display:none}
+  #hud summary::after{content:"\25BE";color:var(--faint)}
+  #hud[open] summary::after{content:"\25B4"}
+  #hud summary:hover{border-color:#394052}
+  #hud summary:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+  #hud .items{position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
+       display:flex;flex-direction:column;gap:6px;white-space:nowrap;background:#0a0c12f2;
+       padding:10px 14px;border:1px solid var(--line);border-radius:8px}
+  #hud b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+  #hud b.ok{color:var(--green)} #hud b.bad{color:var(--red)}
+  #hud b.warn{color:var(--amber)} #hud b.sky{color:var(--sky)} #hud b.off{color:var(--faint)}
+  #hud s{width:1px;height:12px;background:var(--line);margin:0 2px;text-decoration:none}
+  /* legends are a dropdown so they never sit on the map */
+  .lgd{position:absolute;left:14px;bottom:12px;font-size:11.5px;color:var(--dim);z-index:3}
+  .lgd summary{list-style:none;cursor:pointer;background:#0a0c12cc;border:1px solid var(--line);
+               border-radius:6px;padding:7px 11px;display:flex;gap:7px;align-items:center}
+  .lgd summary::-webkit-details-marker{display:none}
+  .lgd summary::after{content:"\25B4";color:var(--faint)}
+  .lgd[open] summary::after{content:"\25BE"}
+  .lgd summary:hover{color:var(--ink)}
+  .lgd summary:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+  .lgd .items{position:absolute;left:0;bottom:calc(100% + 6px);display:flex;
+              flex-direction:column;gap:7px;white-space:nowrap;background:#0a0c12f2;
+              padding:10px 12px;border:1px solid var(--line);border-radius:6px}
+  .lgd i{font-style:normal;display:flex;align-items:center;gap:7px}
+  .sw{width:9px;height:9px;border-radius:2px;display:inline-block;flex:none}
+  #tip{position:absolute;pointer-events:none;background:#0c0f16f2;border:1px solid var(--line);
+       border-radius:5px;padding:5px 9px;font-size:12px;white-space:nowrap;opacity:0;
+       transition:opacity .1s;transform:translate(-50%,-140%)}
+  #ctrls{position:absolute;right:14px;bottom:12px;display:flex;gap:8px;align-items:center;z-index:3}
+  #hint{font-size:11.5px;color:var(--faint);
+        background:#0a0c12cc;padding:7px 11px;border:1px solid var(--line);border-radius:6px}
+  #zoom{display:flex;background:#0a0c12d9;border:1px solid var(--line);border-radius:6px;
+        overflow:hidden}
+  #zoom button{background:none;border:0;border-left:1px solid var(--line);color:var(--dim);
+        min-width:32px;height:30px;padding:0 9px;cursor:pointer;font-size:14px}
+  #zoom button:first-child{border-left:0}
+  #zoom #zfit{font-size:11.5px}
+  #zoom button:hover{color:var(--ink);background:#1d2330}
+  #zoom button:focus-visible{outline:2px solid var(--green);outline-offset:-2px}
+  body.fieldview #zoom{display:none}
+  #ylegend{display:none}
+  body.yardview:not(.fieldview) #ylegend{display:block}
+  body.yardview #legend{display:none}
+  /* --- presenter mode: no rails, bigger type, a tour bar --- */
+  body.present #app{grid-template-columns:minmax(0,1fr)}   /* the rails are display:none, so the map is the only cell */
+  body.present .col.left{display:none}
+  /* on the presenter page the inspector floats over the map as a card, only while
+     something is selected — so "what's that building?" has an answer on stage */
+  body.present .col.right{position:fixed;top:62px;right:14px;width:340px;max-height:calc(100% - 140px);
+       border:1px solid #2e3648;border-radius:12px;box-shadow:0 18px 50px #000a;z-index:7;overflow:hidden}
+  body.present.noinsp .col.right,body.present.touring .col.right{display:none}
+  body.present:not(.noinsp) #wlegend{display:none}
+  body.present #hud{font-size:15px}
+  body.present .lgd,body.present #hint,body.present #zoom button{font-size:13px}
+  body.touring #hint,body.touring .lgd,body.touring #intro{display:none!important}
+  /* --- event feed: a replay of the latest scan, real timestamps only --- */
+  #feed{position:absolute;left:14px;top:62px;bottom:62px;width:290px;z-index:3;display:none;
+        flex-direction:column;background:#0a0f19ea;border:1px solid var(--line);border-radius:10px;
+        overflow:hidden}
+  #feed{display:flex}
+  /* minimized: the header plus one line that cycles through the latest events */
+  /* minimized it sits in the bottom-left corner — open water at every zoom — above the
+     legend; during the tour the caption owns the bottom, so it moves up top */
+  body.feedmin #feed,body.yardview #feed,body.fieldview #feed{top:auto;bottom:56px}
+  body.touring:not(.feedscene) #feed{bottom:auto;top:62px}
+  body.feedscene #feed{bottom:200px}     /* clear of the tour caption */
+  body.feedmin #flist,body.touring:not(.feedscene) #flist,body.yardview #flist,body.fieldview #flist,
+  body.feedmin .fsub,body.touring:not(.feedscene) .fsub,body.yardview .fsub,body.fieldview .fsub,
+  body.feedmin #freplay,body.touring:not(.feedscene) #freplay,body.yardview #freplay,body.fieldview #freplay{display:none}
+  .ftick{display:none;padding:2px 12px 10px;font-size:12px;color:#b9c2d2;cursor:pointer;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:opacity .25s}
+  .ftick time{font:11px var(--mono);color:var(--faint);margin-right:6px}
+  .ftick i{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px}
+  body.feedmin .ftick,body.touring:not(.feedscene) .ftick,body.yardview .ftick,body.fieldview .ftick{display:block}
+  body.feedmin #feed .fh,body.touring:not(.feedscene) #feed .fh,body.yardview #feed .fh,body.fieldview #feed .fh{cursor:pointer}
+  body.touring #fmin,body.yardview #fmin,body.fieldview #fmin{display:none}
+  #fmin{background:none;border:1px solid var(--line);color:var(--dim);border-radius:6px;
+        width:22px;height:22px;padding:0;line-height:18px;cursor:pointer;margin-left:4px}
+  #fmin:hover{color:var(--ink);border-color:#4a5468}
+  #feed .fh{display:flex;align-items:center;justify-content:space-between;padding:11px 12px 2px}
+  #feed .fh b{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink)}
+  #feed .fsub{padding:0 12px 8px;font-size:11px;color:var(--faint);border-bottom:1px solid var(--line)}
+  #freplay{background:#161b27;border:1px solid var(--line);color:var(--dim);border-radius:99px;
+        padding:3px 10px;font-size:11px;cursor:pointer}
+  #freplay:hover{color:var(--ink)} #freplay[aria-pressed="true"]{color:var(--green);border-color:#37ca3766}
+  #flist{list-style:none;margin:0;padding:6px 0;overflow-y:auto;flex:1}
+  #flist::-webkit-scrollbar{width:8px} #flist::-webkit-scrollbar-thumb{background:#242a38;border-radius:8px}
+  #flist li{display:grid;grid-template-columns:44px 10px minmax(0,1fr);gap:7px;align-items:baseline;
+        padding:5px 12px;font-size:12px;color:#b9c2d2;cursor:pointer;line-height:1.4}
+  #flist li:hover,#flist li.now{background:#161d2b}
+  #flist li.now{box-shadow:inset 2px 0 0 var(--green)}
+  #flist li.sub{color:var(--dim);font-size:11.5px}
+  #flist time{font:11px var(--mono);color:var(--faint)}
+  #flist li.live time{color:var(--green)}
+  .livedot,.pausedot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;
+       transform:translateY(-1px)}
+  .livedot{background:var(--green);box-shadow:0 0 0 0 #37ca3788;animation:livepulse 1.8s infinite}
+  .pausedot{background:var(--amber)}
+  @keyframes livepulse{0%{box-shadow:0 0 0 0 #37ca3788}70%{box-shadow:0 0 0 7px #37ca3700}100%{box-shadow:0 0 0 0 #37ca3700}}
+  @media (prefers-reduced-motion:reduce){.livedot{animation:none}}
+  #flist i{width:7px;height:7px;border-radius:50%;display:inline-block;transform:translateY(-1px)}
+  #flist .day{display:block;grid-column:1/-1;font-size:10px;letter-spacing:.15em;text-transform:uppercase;
+        color:var(--faint);padding:8px 12px 2px;cursor:default}
+  #flist .day:hover{background:none}
+  body.present #flist li{font-size:13px} body.present #feed{width:320px}
+  @media (max-width:1000px){ #feed{display:none!important} }
+  #tourbtn,#watchbtn,#hivebtn{flex:none;pointer-events:auto;background:#0c0f16d9;border:1px solid var(--line);
+       border-radius:99px;color:var(--dim);padding:6px 14px;font-size:12px;cursor:pointer}
+  #tourbtn:hover,#watchbtn:hover,#hivebtn:hover{color:var(--ink);border-color:#394052}
+  #hivebtn[aria-pressed="true"]{color:#f0b8e4;border-color:#b0479a88;background:#2a0f25d9}
+  body.hive #stage{background:#1c0916}
+  .hiveonly{display:none!important} body.hive .lgd i.hiveonly{display:flex!important}
+  #watchbtn[aria-pressed="true"]{color:#ffe7b0;border-color:#ffe7b066;background:#2a2416d9}
+  body.present #tourbtn{color:var(--green);border-color:#37ca3766;font-weight:600}
+  #tourbtn:focus-visible,#watchbtn:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+  #wlegend{position:absolute;top:60px;right:14px;z-index:3;display:none;flex-direction:column;gap:5px;
+       background:#0a0c12e6;border:1px solid var(--line);border-radius:8px;padding:9px 12px;
+       font-size:12px;color:var(--dim)}
+  body.watching:not(.fieldview):not(.yardview) #wlegend{display:flex}
+  body.present #wlegend{font-size:14px}
+  #wlegend i{font-style:normal;display:flex;gap:8px;align-items:center}
+  #wlegend .sw{width:11px;height:11px}
+  #tour{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:none;
+       width:min(760px,calc(100% - 32px));background:#0d111bf2;border:1px solid #2e3648;
+       border-radius:14px;padding:16px 20px 14px;box-shadow:0 18px 50px #000a}
+  body.touring #tour{display:block}
+  #tour h2{margin:0 0 6px;font-size:21px;color:var(--ink);font-weight:600;letter-spacing:-.01em}
+  #tour p{margin:0;font-size:15.5px;line-height:1.55;color:#c3cad8}
+  #tour p b{color:var(--ink)}
+  #tour .nav{display:flex;align-items:center;gap:10px;margin-top:12px}
+  #tour .nav span{color:var(--faint);font-size:12px;margin-right:auto;font-variant-numeric:tabular-nums}
+  #tour button{background:#161b27;border:1px solid var(--line);color:var(--dim);border-radius:7px;
+       padding:6px 14px;cursor:pointer;font-size:13px}
+  #tour button:hover{color:var(--ink);border-color:#4a5468}
+  #tour #tnext{color:var(--green);border-color:#37ca3755}
+  #tour .dots{display:flex;gap:5px;margin-right:6px}
+  #tour .dots i{width:6px;height:6px;border-radius:50%;background:#2a3142}
+  #tour .dots i.on{background:var(--green)}
+  #intro{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:5;
+         width:min(380px,calc(100% - 32px));background:#10141ef5;border:1px solid #2e3648;
+         border-radius:12px;padding:20px 22px 18px;box-shadow:0 20px 60px #0009;
+         font-size:13.5px;color:#c3cad8;line-height:1.55}
+  #intro[hidden]{display:none}
+  #intro h2{margin:0 0 10px;font-size:16px;color:var(--ink);font-weight:600}
+  #intro p{margin:0 0 8px}
+  #intro b{color:var(--ink)}
+  #intro .more{color:var(--dim);font-size:12.5px;margin-top:12px}
+  #introok{margin-top:8px;background:#37ca3718;border:1px solid #37ca3755;color:var(--green);
+         border-radius:7px;padding:8px 18px;font-weight:600;cursor:pointer}
+  #introok:hover{background:#37ca3728}
+
+  /* --- the field: the same snapshot as a radial graph ----------------- */
+  #field{position:absolute;inset:0;width:100%;height:100%;display:none;cursor:grab;
+         touch-action:none}
+  #field.drag{cursor:grabbing}
+  body.fieldview #field{display:block}
+  body.fieldview canvas{display:none}
+  body.fieldview #legend{display:none}
+  #views{flex:none;pointer-events:auto;display:flex;gap:2px;padding:3px;
+         background:#0c0f16d9;border:1px solid var(--line);border-radius:99px;z-index:3}
+  #views button{background:none;border:0;border-radius:99px;padding:5px 14px;font-size:12px;
+                color:var(--dim);cursor:pointer}
+  #views button[aria-pressed="true"]{background:#1d2330;color:var(--ink)}
+  #views button:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+  #fieldctl{position:absolute;top:60px;left:14px;display:none;gap:14px;align-items:center;
+            background:#0c0f16d9;border:1px solid var(--line);border-radius:8px;
+            padding:7px 12px;font-size:11px;color:var(--faint);z-index:3}
+  body.fieldview #fieldctl{display:flex}
+  #fieldctl label{display:flex;gap:7px;align-items:center}
+  #fieldctl input[type=range]{width:74px;accent-color:#4a5468}
+  .toggle{width:30px;height:16px;border-radius:99px;border:1px solid var(--line);
+          background:#0c0f16;position:relative;cursor:pointer;padding:0}
+  .toggle::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;
+                 border-radius:50%;background:#4a5468;transition:.15s}
+  .toggle[aria-pressed="true"]{border-color:#37ca3755}
+  .toggle[aria-pressed="true"]::after{left:16px;background:var(--green)}
+  #flegend{display:none}
+  body.fieldview #flegend{display:block}
+  #flegend .sw{border-radius:50%}
+  .spoke{fill:none;stroke:#222a3c}
+  .twig{fill:none;stroke-width:1}
+  .chord{fill:none;stroke:#3b6f8f;stroke-width:.8}
+  .fnode{cursor:pointer}
+  .fdim{opacity:.12}
+  .dlbl{font:10.5px var(--sans);letter-spacing:.2em;text-transform:uppercase;pointer-events:none}
+  .alb{font:9.5px var(--mono);fill:#7b8399;pointer-events:none}
+
+  /* --- inspector ----------------------------------------------------- */
+  .empty{color:var(--faint);font-size:13px;padding:18px 6px;line-height:1.65}
+  .empty b{color:var(--dim);font-weight:600}
+  .bname{font-size:19px;font-weight:600;margin:0 0 3px;letter-spacing:-.01em;
+         word-break:break-word}
+  .bdist{color:var(--faint);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+         margin-bottom:12px}
+  .pills{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+  .pill{font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid var(--line);
+        color:var(--dim);white-space:nowrap}
+  .pill.live{color:var(--green);border-color:#37ca3745;background:#37ca3712}
+  .pill.failing,.pill.misconfigured{color:var(--red);border-color:#ff6b5e45;background:#ff6b5e12}
+  .pill.scaffold{color:var(--amber);border-color:#ffb74d45;background:#ffb74d12}
+  .pill.cloud{color:var(--sky);border-color:#6fb6ff45;background:#6fb6ff12}
+  .pill.paused{color:#aab3c5;border-color:#aab3c545;background:#aab3c512}
+  .purpose{color:#c3cad8;font-size:13px;margin-bottom:15px}
+  .purpose.quote{border-left:2px solid var(--line);padding-left:10px;color:#aab3c4;
+                 font-style:italic}
+  dl{margin:0 0 15px;display:grid;grid-template-columns:82px minmax(0,1fr);gap:7px 12px;
+     font-size:12.5px}
+  dt{color:var(--faint)} dd{margin:0;color:#ccd3e0;min-width:0;word-break:break-word}
+  .sect{font-size:10px;letter-spacing:.17em;text-transform:uppercase;color:var(--faint);
+        margin:0 0 8px;padding-top:14px;border-top:1px solid var(--line)}
+  .writes{list-style:none;margin:0 0 15px;padding:0}
+  .writes li{font:11.5px/1.5 var(--mono);color:#9fb0c9;padding:3px 0;display:flex;gap:7px}
+  .writes li::before{content:"\2192";color:var(--faint);flex:none}
+  .alert{border:1px solid #ff6b5e35;background:#ff6b5e0e;border-radius:5px;padding:9px 11px;
+         font-size:12px;color:#ffb0a6;margin-bottom:14px;line-height:1.5}
+  .alert+.alert{margin-top:-6px}
+  .ask textarea{width:100%;background:#0c0f16;border:1px solid var(--line);border-radius:6px;
+     color:var(--ink);padding:9px 11px;font-size:13px;line-height:1.5;resize:vertical;
+     min-height:60px}
+  .ask textarea:focus{outline:none;border-color:#37ca3755}
+  .askbtn{margin-top:7px;width:100%;background:#37ca3714;border:1px solid #37ca3740;
+    color:var(--green);border-radius:6px;padding:9px;font-weight:600;font-size:12.5px;
+    cursor:pointer}
+  .askbtn:hover:not(:disabled){background:#37ca3722}
+  .askbtn:disabled{opacity:.5;cursor:default}
+  .answer{margin-top:10px;border:1px solid var(--line);border-radius:6px;padding:11px 12px;
+    background:var(--panel2);font-size:12.5px;line-height:1.6;color:#c3cad8;
+    white-space:pre-wrap}
+  .answer .who{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);
+    margin-bottom:7px;white-space:normal}
+  .mocknote{margin-top:12px;font-size:11.5px;color:var(--faint);line-height:1.5;
+    border-top:1px dashed var(--line);padding-top:10px}
+  .unavail{font-size:11.5px;color:var(--faint);line-height:1.5;padding:8px 0}
+
+  #fsel{fill:none;stroke:var(--green);stroke-width:1.4;opacity:.9;pointer-events:none}
+  .sr{position:absolute;left:-9999px}
+  pre.tail{font:11px/1.45 var(--mono);color:#c8a9a3;background:#0c0f16;border:1px solid #ff6b5e30;
+    border-radius:6px;padding:8px 10px;margin:0 0 15px;max-height:220px;overflow:auto;white-space:pre-wrap;
+    overflow-wrap:anywhere}
+  .goagent{color:var(--sky);text-decoration:none} .goagent:hover{text-decoration:underline}
+  body.demo #scanned{color:var(--amber)}
+
+  @media (max-width:1000px){
+    body{overflow:auto}
+    #app{grid-template-columns:1fr;height:auto;min-height:100%}
+    /* the city is a 2:1 diamond, so its useful height follows the width it gets */
+    #stage{height:clamp(300px,80vw,460px);order:-1;border-bottom:1px solid var(--line)}
+    .col{max-height:none}
+    .col.left,.col.right{border:0;border-top:1px solid var(--line)}
+    .scroll{overflow:visible;padding-bottom:20px}
+    #hint{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){ .f{transition:none} }
+</style>
+
+<div id="app">
+  <div class="col left">
+    <div class="hd">
+      <h1 id="cityname">City Hall</h1>
+      <div class="sub" id="scanned"></div>
+      <input id="q" type="search" placeholder="Find an agent&hellip;"
+             autocomplete="off" aria-label="Find an agent">
+      <details class="fdrop" id="filters"><summary>Filters <span id="fcount"></span></summary>
+        <div class="chips" id="chips"></div></details>
+      <div class="tabs" role="tablist" aria-label="City Hall">
+        <button role="tab" data-tab="events" aria-selected="true">Events</button>
+        <button role="tab" data-tab="findings" aria-selected="false">Findings <span class="badge" id="bfind"></span></button>
+        <button role="tab" data-tab="yards" aria-selected="false">Yards <span class="badge" id="byards"></span></button>
+      </div>
+    </div>
+    <div class="scroll">
+      <div class="pane on" id="pane-events" role="tabpanel"></div>
+      <div class="pane" id="pane-findings" role="tabpanel"><div id="findings"></div></div>
+      <div class="pane" id="pane-yards" role="tabpanel"><div id="yardsrail"></div></div>
+    </div>
+  </div>
+
+  <div id="stage">
+    <canvas id="c" aria-label="Isometric map of every agent and automation"></canvas>
+    <svg id="field" aria-label="Radial map: shared memory at the centre, districts around it"></svg>
+    <div id="topbar">
+      <div id="views">
+        <button data-v="city" aria-pressed="true">City</button>
+        <button data-v="yards" aria-pressed="false">Yards</button>
+        <button data-v="field" aria-pressed="false">Field</button>
+      </div>
+      <details id="hud"><summary id="hudsum"></summary><div class="items" id="huditems"></div></details>
+      <button id="hivebtn" aria-pressed="false" title="Redraw the city as a hive — same data">Hive</button>
+      <button id="watchbtn" aria-pressed="false" title="Show what the watchdog checks">Watchdog</button>
+      <button id="tourbtn" title="Step through the city (arrow keys)">&#9654; Tour</button>
+    </div>
+    <div id="feed" aria-label="Events from the latest scan">
+      <div class="fh"><b>Today in the city</b>
+        <span><button id="freplay">&#9654; Replay</button>
+        <button id="fmin" aria-label="Minimize the feed" title="Minimize">&minus;</button></span></div>
+      <div class="ftick" id="ftick" aria-live="polite"></div>
+      <div class="fsub" id="fsub"></div>
+      <ol id="flist"></ol>
+    </div>
+    <div id="wlegend" aria-label="Watchdog legend">
+      <i><span class="sw" style="background:#9cf09c"></span>whole building lit = checks what it delivered</i>
+      <i><span class="sw" style="background:#8fc4ff"></span>only the door lit = checks it ran, nothing more</i>
+      <i><span class="sw" style="background:#2a2f3c;border:1px solid #4a5468"></span>dark = nobody checks it</i>
+    </div>
+    <div id="tour" role="region" aria-live="polite" aria-label="Guided tour">
+      <h2 id="ttitle"></h2><p id="ttext"></p>
+      <div class="nav"><div class="dots" id="tdots"></div><span id="tcount"></span>
+        <button id="tprev">&larr; Back</button><button id="tnext">Next &rarr;</button>
+        <button id="texit" aria-label="End tour">&times;</button></div>
+    </div>
+    <div id="fieldctl">
+      <label>spread <input id="fspread" type="range" min="14" max="34" value="25"></label>
+      <label>signal <input id="frate" type="range" min="0" max="10" value="4"></label>
+      <label>labels <button class="toggle" id="flabels" aria-pressed="false"></button></label>
+    </div>
+    <details id="flegend" class="lgd"><summary>Legend</summary><div class="items">
+      <i><span class="sw" style="background:#37ca37"></span>live</i>
+      <i><span class="sw" style="background:#ff6b5e"></span>failing</i>
+      <i><span class="sw" style="background:#ffb74d"></span>never installed</i>
+      <i><span class="sw" style="background:#6fb6ff"></span>run by hand</i>
+      <i><span class="sw" style="background:#4a5468"></span>dark</i>
+      <i><span class="sw" style="background:#cdddff"></span>a file two or more agents touch</i>
+    </div></details>
+    <div id="tip" role="status"></div>
+    <details id="legend" class="lgd"><summary>Legend</summary><div class="items">
+      <i><span class="sw" style="background:#fff0d6"></span>lit windows = ran recently</i>
+      <i><span class="sw" style="background:#5c6478"></span>gone dark</i>
+      <i><span class="sw" style="background:#ffb74d"></span>scaffolding = never installed</i>
+      <i><span class="sw" style="background:#ff6b5e"></span>smoke = failing</i>
+      <i><span class="sw" style="background:#6fb6ff"></span>blue plinth = runs in the cloud</i>
+      <i><span class="sw" style="background:#5fd0b0"></span>teal plinth = runs on an always-on server</i>
+      <i><span class="sw" style="background:#8a93a8"></span>bigger, fancier = higher value tier</i>
+      <i><span class="sw" style="background:#6fd9d9"></span>rain = reads shared files (hover)</i>
+      <i><span class="sw" style="background:#c4a7ff"></span>violet tile = writes shared files</i>
+      <i><span class="sw" style="background:#37ca37"></span>green road = feeds another agent (hover)</i>
+      <i><span class="sw" style="background:#6b5233"></span>pier = an outside service it talks to (Slack, GitHub…)</i>
+      <i class="hiveonly"><span class="sw" style="background:#d6ff78"></span>hive: glowing pustules = lit windows</i>
+      <i class="hiveonly"><span class="sw" style="background:#cdb9a0"></span>hive: eggs = never installed · eye = watchdog</i>
+      <i><span class="sw" style="background:#e4e9f2;border-radius:50%"></span>walker = carries a file to the next agent; more = ran more recently</i>
+      <i><span class="sw" style="background:#ff6b5e"></span>red parcel = the sender's last run failed</i>
+    </div></details>
+    <div id="ctrls">
+      <div id="hint">drag to pan &middot; scroll to zoom &middot; click a building</div>
+      <div id="zoom">
+        <button id="zout" aria-label="Zoom out">&minus;</button>
+        <button id="zfit" aria-label="Fit to screen">Fit</button>
+        <button id="zin" aria-label="Zoom in">+</button>
+        <button id="zhelp" aria-label="What is this?">?</button>
+      </div>
+    </div>
+    <details id="ylegend" class="lgd"><summary>Legend</summary><div class="items">
+      <i><span class="sw" style="background:#6fb6ff"></span>finish &middot; open in a terminal, or code touched in the last two weeks</i>
+      <i><span class="sw" style="background:#ffb74d"></span>decide &middot; idle two to eight weeks</i>
+      <i><span class="sw" style="background:#ff6b5e"></span>let go &middot; idle past eight weeks</i>
+      <i><span class="sw" style="background:#d8b25a"></span>crane + crew + scaffolding = in progress (code moved in the last two weeks)</i>
+      <i><span class="sw" style="background:#ffc97a"></span>amber crane, busier crew = a terminal is open on it right now</i>
+      <i><span class="sw" style="background:#8a94ab"></span>stakes only = planned, nothing built</i>
+      <i><span class="sw" style="background:#4a4029"></span>taller walls = more code written</i>
+      <i><span class="sw" style="background:#a8823f"></span>each pallet &asymp; $25 of AI time spent</i>
+    </div></details>
+    <div id="intro" hidden role="dialog" aria-labelledby="introh">
+      <h2 id="introh">What you're looking at</h2>
+      <p>Every <b>building</b> is one of your automations.</p>
+      <p><b>Lit windows</b> mean it ran recently. Dark means it has gone quiet.</p>
+      <p><b>Smoke</b> means it is failing right now. A <b>!</b> marks something worth a look.</p>
+      <p class="more">The little <b>walkers</b> carry files from one automation to the next.
+        Hover a building to see what it feeds. Click it for the details.
+        <b>Yards</b> shows work still in progress.</p>
+      <button id="introok">Got it</button>
+    </div>
+  </div>
+
+  <div class="col right">
+    <div class="hd">
+      <button class="x" id="iclose" aria-label="Close inspector">&times;</button>
+      <h1>Inspector</h1>
+      <div class="sub" id="isub">nothing selected</div>
+    </div>
+    <div class="scroll" id="panel"></div>
+  </div>
+</div>
+
+<script>
+/* The snapshot is injected here by build.py as window.__CITY__. */
+const CITY = window.__CITY__ || {districts:[],agents:[],findings:[],counts:{}};
+// ?present: bigger type and a floating feed, for showing the city on a screen
+const PRESENT = /[?&]present\b/.test(location.search);
+const AGENTS = CITY.agents, DISTRICTS = CITY.districts;
+const TERMS = CITY.terminals || [], YARDS = CITY.yards || [];
+const BRAIN = CITY.brain || {stores:[],totals:{}};
+const SITES = CITY.sites || [], SBLOCK = CITY.site_block || null;
+const dmap = {}; DISTRICTS.forEach(d => dmap[d.id] = d);
+// colours handed out by position, so any district / store / service gets one
+const PALETTE=['#6fb6ff','#b48cff','#37ca37','#ff7ab6','#ffb74d','#4fd8d0','#9fd3c7','#ff9a5c','#e3a6ff','#8f9bff'];
+const palette=k=>PALETTE[((k%PALETTE.length)+PALETTE.length)%PALETTE.length];
+const hexRgb=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+// Architecture (tier) comes from scan.py: use in the last 7 days, declared value, or a
+// blend ([city] size_by). The declared value tier is kept as value_tier for the
+// inspector and the "value tier 4+" filter.
+AGENTS.forEach(a => { if(a.value_tier===undefined){ a.value_tier=a.tier; if(a.use_tier) a.tier=a.use_tier; } });
+AGENTS.forEach(a => { const d = dmap[a.district] || {ox:0,oy:0,tint:"#2a3350"};
+                      a.gx = d.ox + a.i*2; a.gy = d.oy + a.j*2; });
+
+/* ---------------- isometric renderer ---------------- */
+const TW=64, TH=32, FLOOR=15;
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+const pk=document.createElement('canvas'), pctx=pk.getContext('2d',{willReadFrequently:true});
+let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
+let cam={x:0,y:0,s:1}, hover=-1, sel=-1, t=0, pickDirty=true;
+let hoverStore=null, selStore=null;
+let mode='city';            // 'city' or 'yards' — the canvas shows one at a time
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const proj=(x,y,z)=>({X:(x-y)*TW/2, Y:(x+y)*TH/2 - z});
+const rnd=s=>{const x=Math.sin(s*127.1+311.7)*43758.5453; return x-Math.floor(x);};
+function shade(hex,f){
+  const n=parseInt(hex.slice(1),16);
+  return `rgb(${Math.min(255,((n>>16)&255)*f|0)},${Math.min(255,((n>>8)&255)*f|0)},${Math.min(255,(n&255)*f|0)})`;
+}
+function poly(c,pts,fill,stroke,lw){
+  c.beginPath(); c.moveTo(pts[0].X,pts[0].Y);
+  for(let i=1;i<pts.length;i++) c.lineTo(pts[i].X,pts[i].Y);
+  c.closePath();
+  if(fill){c.fillStyle=fill;c.fill();}
+  if(stroke){c.strokeStyle=stroke;c.lineWidth=lw||1;c.stroke();}
+}
+const lerp=(p,q,u)=>({X:p.X+(q.X-p.X)*u, Y:p.Y+(q.Y-p.Y)*u});
+// Labels are drawn at screen size, not world size, so they stay readable when the
+// whole city is fitted small. f gets the label's on-screen x,y.
+const FONT=()=>getComputedStyle(document.body).fontFamily;
+function onScreen(X,Y,f){
+  ctx.save(); ctx.setTransform(DPR,0,0,DPR,0,0);
+  f(X*cam.s+cam.x, Y*cam.s+cam.y); ctx.restore();
+}
+
+function bodyColor(a){
+  if(a.state==='scaffold') return '#3a3322';
+  if(a.state==='ruin')     return '#242832';
+  if(a.state==='dormant')  return '#2b3040';
+  if(a.state==='unknown')  return '#2e3340';
+  if(a.state==='paused')   return '#2c3140';
+  if(a.state==='misconfigured') return '#3d2630';
+  return (dmap[a.district]||{}).tint || '#2a3350';
+}
+function litFrac(a){
+  if(a.state==='scaffold'||a.state==='ruin'||a.state==='misconfigured'||a.state==='paused'||a.state==='unknown') return 0;
+  // an always-on service that is live is running right now, whether or not this
+  // machine sees its runs; drawing it dark would say it had gone quiet
+  if(a.state==='live' && /always-on|resident/i.test(a.schedule||'')) return 0.7;
+  const h=a.hours_ago;
+  if(h===null||h===undefined) return 0.05;
+  if(h<24) return 0.85;
+  if(h<24*7) return 0.42;
+  if(h<24*30) return 0.16;
+  return 0.04;
+}
+const heightOf=a=>(a.state==='ruin' ? a.floors*FLOOR*0.62 : a.floors*FLOOR);
+// off this machine: a cloud host, or an always-on server you reach over ssh.
+// Either way it survives this machine being shut, so both stand on a plinth.
+const offMachine=a=>a.host==='cloud'||a.host==='server';
+const baseOf=a=>(offMachine(a) ? 10 : 0);
+const isNew=a=>(CITY.changed||[]).some(c=>c.agent===a.id&&c.what==='new');
+
+function resize(){
+  const r=document.getElementById('stage').getBoundingClientRect();
+  W=Math.max(1,r.width); H=Math.max(1,r.height);
+  cv.width=W*DPR; cv.height=H*DPR; cv.style.width=W+'px'; cv.style.height=H+'px';
+  pk.width=W*DPR; pk.height=H*DPR; pickDirty=true;
+}
+// room the event feed takes on the left of the map while it is showing
+function feedPad(){
+  const f=document.getElementById('feed'), b=document.body.classList;
+  if(!f || !f.offsetParent || !f.closest('#stage') || b.contains('feedmin')
+     || (b.contains('touring') && !b.contains('feedscene'))
+     || b.contains('yardview') || b.contains('fieldview')) return 0;
+  return f.offsetLeft+f.offsetWidth+16;
+}
+function fitCity(){
+  let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
+  const add=p=>{minX=Math.min(minX,p.X);maxX=Math.max(maxX,p.X);
+                minY=Math.min(minY,p.Y);maxY=Math.max(maxY,p.Y);};
+  if(mode==='yards' && SBLOCK){
+    add(proj(SBLOCK.x-3.5,SBLOCK.y,0)); add(proj(SBLOCK.x+SBLOCK.w,SBLOCK.y,40));
+    add(proj(SBLOCK.x+SBLOCK.w,SBLOCK.y+SBLOCK.h,0)); add(proj(SBLOCK.x,SBLOCK.y+SBLOCK.h+1.5,0));
+    add(proj(SBLOCK.x-5,SBLOCK.y+SBLOCK.h,0));       // the street signs hang off the west edge
+    SITES.forEach(r=>add(proj(r.gx,r.gy,58)));
+  } else {
+  DISTRICTS.forEach(d=>{
+    [[d.ox-1,d.oy-1],[d.ox+5,d.oy-1],[d.ox+5,d.oy+7],[d.ox-1,d.oy+7]]
+      .forEach(([x,y])=>add(proj(x,y,0)));
+    const l=proj(d.ox+2,d.oy+7.4,0); add({X:l.X,Y:l.Y+22});
+  });
+  AGENTS.forEach(a=>add(proj(a.gx,a.gy,baseOf(a)+heightOf(a)+62)));
+  (BRAIN.stores||[]).forEach(s=>{
+    const p=proj(s.gx,s.gy,CLOUD_Z+50);
+    add(p); add({X:p.X-cloudR(s)*1.75-300,Y:p.Y});   // room for the label, right-aligned left of the cloud
+  });
+  layoutPiers();                           // and for the piers on the shore, with their labels
+  PIERS.forEach(p=>{ const e=proj(p.sx+p.ux*3.2,p.sy+p.uy*3.2,0);
+    add({X:e.X-70,Y:e.Y}); add({X:e.X+70,Y:e.Y+34}); });   // label width, either side
+  }
+  // the whole shore is always in frame: it is fitted to everything on the island, so
+  // framing it frames every building and plot, whatever grew since the last snapshot
+  _isl=null; islandShape().pts.forEach(([x,y])=>add(proj(x,y,0)));
+  if(mode==='yards') SITES.forEach(r=>add(proj(r.gx,r.gy,90)));   // crane tops
+  // keep the city clear of the top bar and the legend/hint row, whatever their height
+  const pad=38, tb=document.getElementById('topbar'), padL=feedPad()||pad;
+  // the minimized feed sits bottom-left over the map: keep the shore clear of it
+  const fd=document.getElementById('feed'), fmin=fd && fd.closest('#stage') && fd.offsetParent && !feedPad();
+  const top=Math.max(pad,(tb?tb.offsetTop+tb.offsetHeight:0)+12),
+        bot=document.body.classList.contains('touring')?190:(fmin && !document.body.classList.contains('touring')
+            && fd.getBoundingClientRect().top > document.getElementById('stage').getBoundingClientRect().top+H/2
+            ? Math.max(56, H-(fd.getBoundingClientRect().top-document.getElementById('stage').getBoundingClientRect().top)+8) : 56);
+  cam.s=Math.max(0.3,Math.min(Math.min((W-padL-pad)/(maxX-minX),(H-top-bot)/(maxY-minY)),2.2));
+  fitS=cam.s; userMoved=false;
+  cam.x=padL+(W-padL-pad)/2-((minX+maxX)/2)*cam.s;
+  cam.y=top+(H-top-bot)/2-((minY+maxY)/2)*cam.s;
+}
+
+function sky(){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  if(HIVE){
+    const g=ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#12050e'); g.addColorStop(.55,'#1c0916'); g.addColorStop(1,'#2a0d1d');
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    for(let k=0;k<80;k++){                         // spores drifting up
+      const y=((rnd(k*7+2)*H)-(reduced?0:t/60*(.3+rnd(k)*.7)))%H, yy=y<0?y+H:y;
+      const x=rnd(k*3+1)*W+(reduced?0:Math.sin(t/2000+k)*6);
+      ctx.fillStyle=`rgba(210,120,190,${.08+.18*rnd(k*11)})`;
+      ctx.beginPath(); ctx.arc(x,yy,1+rnd(k*5)*1.6,0,7); ctx.fill();
+    }
+    const v=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*.35,W/2,H/2,Math.max(W,H)*.75);
+    v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(0,0,0,.45)');
+    ctx.fillStyle=v; ctx.fillRect(0,0,W,H);
+    return;
+  }
+  // the city is an island; everything around it is a dark sea at night
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#0a1220'); g.addColorStop(.55,'#0c1726'); g.addColorStop(1,'#10202f');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // glints on the water: short strokes drifting slowly with the swell
+  for(let k=0;k<90;k++){
+    const tw=reduced?0.6:0.3+0.7*Math.abs(Math.sin(t/2200+k*1.7));
+    const x=((rnd(k*3+1)*W*1.2)+(reduced?0:t/90*(0.4+rnd(k)*.6)))%(W*1.2)-W*.1;
+    const y=rnd(k*7+2)*H, len=4+rnd(k*5)*9;
+    ctx.fillStyle=`rgba(150,190,225,${0.04+0.1*tw*rnd(k*11+5)})`;
+    ctx.fillRect(x,y,len,1);
+  }
+  // moonlight on the water, upper right, and its reflection shimmering down the sea
+  const h=ctx.createRadialGradient(W*.8,H*.12,10,W*.8,H*.12,W*.6);
+  h.addColorStop(0,'rgba(170,200,240,.08)'); h.addColorStop(1,'rgba(170,200,240,0)');
+  for(let k=0;k<46;k++){
+    const y=H*.14+k*(H*.8/46), spread=10+k*1.6, fl=reduced?.5:.5+.5*Math.sin(t/420+k*1.9);
+    const x=W*.8+(rnd(k*13)-.5)*spread*2, len=6+rnd(k*7)*16*(1-k/60);
+    ctx.fillStyle=`rgba(200,220,245,${(.05+.09*fl)*(1-k/52)})`;
+    ctx.fillRect(x-len/2,y,len,1.2);
+  }
+  ctx.fillStyle=h; ctx.fillRect(0,0,W,H);
+  // a soft vignette pulls the eye to the middle of the map
+  const v=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*.35,W/2,H/2,Math.max(W,H)*.75);
+  v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(0,0,0,.35)');
+  ctx.fillStyle=v; ctx.fillRect(0,0,W,H);
+}
+/* The brain, drawn as infrastructure rather than scenery: one substation per
+   knowledge store, and a cable to every agent that reads it. What matters is
+   not how much you know — it is which agents are wired into it. A building with
+   no cable running to it reads nothing shared. */
+
+// A cable is barely there until you ask about it: hover a substation to light
+// everything that reads that store, or hover a building to light what feeds it.
+function cableLit(l, hoveredAgentId){
+  if(hoverStore && hoverStore===l.store) return true;
+  if(hoveredAgentId && hoveredAgentId===l.agent) return true;
+  if(sel>=0 && sel<AGENTS.length && AGENTS[sel].id===l.agent) return true;
+  if(selStore && selStore===l.store) return true;
+  return false;
+}
+
+function drawCables(){
+  const byId={}; AGENTS.forEach(a=>byId[a.id]=a);
+  const subs={}; (BRAIN.stores||[]).forEach(s=>subs[s.id]=s);
+  const hoveredAgentId=(hover>=0 && hover<AGENTS.length) ? AGENTS[hover].id : null;
+  const anyLit = hoverStore || hoveredAgentId || selStore
+                 || (sel>=0 && sel<AGENTS.length);
+  (BRAIN.links||[]).forEach((l,k)=>{
+    const a=byId[l.agent], st=subs[l.store];
+    if(!a||!st||a._dim) return;
+    const c=cloudTone(st), [r,g,b]=c;
+    const lit=cableLit(l,hoveredAgentId);
+    if(!lit) return;                       // drawn only for what you are pointing at
+    const R=cloudR(st), m=cloudMotion(st,k_store(st));
+    // rain leaves the flat bottom of the cloud and lands on the roof
+    const p=proj(st.gx,st.gy,CLOUD_Z); p.X+=m.dx; p.Y+=R*0.34+m.dy;
+    const q=proj(a.gx,a.gy,baseOf(a)+heightOf(a));
+    ctx.beginPath();ctx.moveTo(p.X,p.Y);ctx.lineTo(q.X,q.Y);
+    ctx.strokeStyle=`rgba(${r},${g},${b},${lit?.28:(anyLit?.03:.07)})`;
+    ctx.lineWidth=1; ctx.stroke();
+    if(reduced) return;
+    // the rain itself: short streaks falling the length of the line
+    const n=lit?9:3, len=lit?0.035:0.025;
+    ctx.lineWidth=lit?1.4:1;
+    for(let d=0;d<n;d++){
+      const u=((t/(lit?1100:2600))+d/n+k*.07)%1;
+      const x1=p.X+(q.X-p.X)*u, y1=p.Y+(q.Y-p.Y)*u;
+      const x2=p.X+(q.X-p.X)*Math.min(1,u+len), y2=p.Y+(q.Y-p.Y)*Math.min(1,u+len);
+      ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);
+      ctx.strokeStyle=`rgba(${r},${g},${b},${(lit?.9:(anyLit?.12:.3))*(1-u*0.3)})`;
+      ctx.stroke();
+    }
+  });
+}
+
+const CLOUD_Z=92;
+const k_store=st=>(BRAIN.stores||[]).indexOf(st);
+// capped: a store with tens of thousands of files would swallow the sky
+const cloudR=st=>20+Math.sqrt(Math.min(st.files,2500)/2000)*40;
+
+// One sky, one wind. Every cloud drifts the same way at the same time, which is
+// the difference between weather and a set of things wobbling. The per-cloud
+// jitter is small and only there so the fleet does not move in lock-step.
+function wind(){
+  if(reduced) return {x:0,y:0};
+  return { x: Math.sin(t/14000)*26 + Math.sin(t/4300)*3,
+           y: Math.sin(t/9000)*5 };
+}
+function cloudMotion(st,i){
+  if(reduced) return {dx:0,dy:0};
+  const w=wind(), ph=i*1.7;
+  return { dx: w.x + Math.sin(t/6100+ph)*3, dy: w.y + Math.sin(t/5200+ph*1.9)*2 };
+}
+
+// A cloud is built in screen space — it is vapour, not geometry, and projecting
+// every puff would only make it wobble as the camera moves. The vapour flows:
+// each puff is born at the tail, swells through the middle and thins out at the
+// head, then comes round again, so the mass is never the same shape twice.
+function cloudShape(st,i,layer){
+  const R=cloudR(st), n=8+Math.round(Math.sqrt(st.files/2000)*5);
+  const puffs=[];
+  for(let k=0;k<n;k++){
+    const flow=reduced?0:(t/30000)*(layer?0.8:1);
+    const u=((k/n)+flow+rnd(i*3+k*5+layer*13)*0.4)%1-0.5;     // -0.5 tail … 0.5 head
+    const env=Math.sin((u+0.5)*Math.PI);                     // 0 at both ends, 1 mid
+    const bx=u*R*1.8 + (rnd(i*31+k*7+layer)-0.5)*R*0.4;
+    const by=(rnd(i*17+k*11+layer)-0.5)*R*0.3 - Math.cos(u*Math.PI)*R*0.22;
+    const br=R*(0.42+0.4*rnd(i*13+k*5+layer))*(0.5+0.5*env);
+    const s1=reduced?0:t/3400+k*0.9+i;
+    puffs.push({ x: bx + Math.sin(s1*0.7)*R*0.03, y: by + Math.sin(s1)*R*0.04, r: br });
+  }
+  return {puffs,R};
+}
+function cloudTone(st){
+  if(st.rot>=.35)              return [255,196,132];
+  if((st.never_filled||0)>=.5) return [168,176,196];
+  // the store's own colour if agents.toml gives one, else one from the palette
+  const c=hexRgb(st.color||palette(k_store(st)+5));
+  return c.map(v=>Math.round(v*.55+200*.45));
+}
+const tone=(c,m,a=1)=>`rgba(${(c[0]*m)|0},${(c[1]*m)|0},${(c[2]*m)|0},${a})`;
+const lift=(c,m)=>[Math.min(255,c[0]*m),Math.min(255,c[1]*m),Math.min(255,c[2]*m)];
+
+// the union of the puffs, as one path — overlapping flat circles read as one shape
+function puffPath(c,puffs,sx=1,sy=1){
+  c.beginPath();
+  puffs.forEach(p=>{ c.moveTo(p.x*sx+p.r*sx,p.y*sy); c.ellipse(p.x*sx,p.y*sy,p.r*sx,p.r*sy,0,0,7); });
+}
+
+// Clouds cast on the ground, not on themselves. Drawn before the buildings so a
+// rooftop sits on top of the shadow sliding across it — that is what ties the
+// sky to the city.
+function drawCloudShadows(){
+  (BRAIN.stores||[]).forEach((st,i)=>{
+    const m=cloudMotion(st,i), g=proj(st.gx,st.gy,0);
+    const {puffs}=cloudShape(st,i,0);
+    ctx.save();
+    ctx.translate(g.X+m.dx*1.1, g.Y+m.dy);
+    puffPath(ctx,puffs,1.15,0.55);
+    ctx.fillStyle='rgba(3,5,10,.30)'; ctx.fill();
+    ctx.restore();
+  });
+}
+
+function drawTentacles(){
+  (BRAIN.stores||[]).forEach((st,i)=>{
+    const c=cloudTone(st), c0=proj(st.gx,st.gy,CLOUD_Z), m=cloudMotion(st,i), R=cloudR(st);
+    for(let j=0;j<5;j++){
+      const x=c0.X+m.dx+(-.6+.3*j)*R, y=c0.Y+m.dy+R*.3, L=R*(.7+rnd(i*5+j)*.5);
+      const sw=reduced?0:Math.sin(t/700+j+i)*R*.18;
+      ctx.beginPath(); ctx.moveTo(x,y);
+      ctx.bezierCurveTo(x+sw,y+L*.35,x-sw,y+L*.7,x+sw*.6,y+L);
+      ctx.strokeStyle=`rgba(${Math.round(c[0]*.6)},${Math.round(c[1]*.45)},${Math.round(c[2]*.6)},.85)`;
+      ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.stroke();
+    }
+  });
+}
+function drawClouds(){
+  if(HIVE) drawTentacles();
+  (BRAIN.stores||[]).forEach((st,i)=>{
+    const on=(hoverStore===st.id)||(selStore===st.id);
+    const c=cloudTone(st), c0=proj(st.gx,st.gy,CLOUD_Z), m=cloudMotion(st,i);
+    const R=cloudR(st), floor=R*0.34;              // the flat bottom
+    const readers=(BRAIN.links||[]).filter(l=>l.store===st.id).length;
+    const font=getComputedStyle(document.body).fontFamily;
+    const k=on?1.18:1;
+
+    ctx.save();
+    ctx.translate(c0.X+m.dx, c0.Y+m.dy);
+    // everything sits on the same invisible plane: a flat-bottomed cloud
+    ctx.beginPath(); ctx.rect(-R*3,-R*3,R*6,R*3+floor); ctx.clip();
+
+    // back layer: darker, higher, and it lags the wind — the parallax is what
+    // makes a flat cloud read as a thick one
+    const back=cloudShape(st,i,1).puffs;
+    ctx.save();
+    ctx.translate(R*0.22-m.dx*0.25, -R*0.2);
+    puffPath(ctx,back);
+    ctx.fillStyle=tone(c,0.34*k,1); ctx.fill();
+    ctx.restore();
+
+    // front layer, three tones: body, a lit cap high on each puff, a dark underside.
+    // The rim light is the same shape nudged up and left and painted first, so
+    // only a sliver of it shows along the lit edge — an edge, not an outline
+    const {puffs}=cloudShape(st,i,0);
+    ctx.save(); ctx.translate(-1.1,-1.3);
+    puffPath(ctx,puffs); ctx.fillStyle=tone(lift(c,1.12),1,0.9*k); ctx.fill();
+    ctx.restore();
+    puffPath(ctx,puffs);
+    ctx.fillStyle=tone(c,0.6*k,1); ctx.fill();
+    ctx.save();
+    puffPath(ctx,puffs); ctx.clip();
+    // underside band
+    ctx.fillStyle=tone(c,0.36*k,1);
+    ctx.fillRect(-R*3, floor-R*0.32, R*6, R*0.32+R);
+    // caps: the lit side of each puff, up and to the left. Each tier is one
+    // merged shape, so the light reads as one surface rather than as bubbles
+    const caps=(f,ox,oy,rr)=>puffs.filter(p=>p.r>=R*f).map(p=>({x:p.x-p.r*ox,y:p.y-p.r*oy,r:p.r*rr}));
+    ctx.fillStyle=tone(lift(c,1.0),0.9*k,1);
+    puffPath(ctx,caps(0.2,0.2,0.26,0.66)); ctx.fill();
+    ctx.restore();
+
+    // wisps: small flat puffs that leave the top, rise and shrink — steam off a
+    // kettle, the part that reads as motion even when the mass barely moves
+    if(!reduced){
+      for(let w=0;w<4;w++){
+        const u=((t/6500)+w/4+rnd(i*5+w)*0.3)%1;
+        const side=rnd(i*9+w*3)<.5?-1:1;
+        const x=side*R*(0.3+0.5*rnd(i*7+w))+side*u*R*0.3, y=-R*(0.5+0.2*rnd(i*4+w))-u*R*0.7;
+        const rr=R*0.14*(1-u)*(1+0.5*Math.sin(u*Math.PI));
+        ctx.beginPath(); ctx.arc(x,y,rr,0,7);
+        ctx.fillStyle=tone(c,0.7*k,0.75*(1-u)); ctx.fill();
+      }
+    }
+    ctx.restore();
+
+    // the name plate rides with its cloud, at screen size
+    ctx.save();
+    onScreen(c0.X+m.dx-R*1.75,c0.Y+m.dy,(x,y)=>{
+      ctx.font='600 12px '+font; ctx.textAlign='right';
+      try{ctx.letterSpacing='1px';}catch(e){}
+      ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${on?1:.95})`;
+      ctx.fillText(st.label.toUpperCase(),x,y-2);
+      try{ctx.letterSpacing='0px';}catch(e){}
+      ctx.font='11px '+font;
+      ctx.fillStyle=st.rot>=.35?'rgba(255,183,77,.95)':'rgba(170,184,204,.85)';
+      ctx.fillText((st.files_label||st.files.toLocaleString())+(st.files===1?' file':' files')
+        +(st.rot>=.35?' · '+Math.round(st.rot*100)+'% cold'
+          :((st.never_filled||0)>=.5?' · '+st.seeded+' unfilled':'')),x,y+12);
+      // under the name plate, not inside the cloud
+      if(!readers){
+        ctx.fillStyle='rgba(255,183,77,.9)';
+        ctx.fillText('nothing draws from this',x,y+26);
+      }
+    });
+    ctx.restore();
+  });
+}
+
+// the land the city stands on: a faint isometric survey grid that fades out
+// toward the edges, so the districts sit on ground instead of floating
+// The land: an island whose shore follows the districts (or the Yards), with a cliff
+// edge, surf that moves, and the survey grid kept to the island itself.
+// Recomputed from the current layout on every call, so a new district or a bigger
+// Yards block always lands on sand: the ellipse is grown until every point is inside the grass
+// line with a margin (wobble can pull the shore in to 0.875, the grass line is 0.93).
+const SHORE_FIT=.8, SHORE_N=4;   // a squircle (n=4) hugs a block of districts; an ellipse left wide empty sand
+const shoreWob=th=>1+.06*Math.sin(th*3+1.3)+.04*Math.sin(th*7+.4)+.025*Math.sin(th*13+2.1);
+// point on the shore at angle th (k scales it, like ring())
+function shoreAt(isl,th,k=1){
+  const c=Math.cos(th), s=Math.sin(th), e=2/SHORE_N, w=shoreWob(th)*k;
+  return [isl.cx+Math.sign(c)*Math.pow(Math.abs(c),e)*isl.rx*w, isl.cy+Math.sign(s)*Math.pow(Math.abs(s),e)*isl.ry*w];
+}
+let _isl=null, _islKey='';
+function islandPoints(){
+  const pts=[];
+  if(mode==='yards'&&SBLOCK){
+    [[SBLOCK.x,SBLOCK.y],[SBLOCK.x+SBLOCK.w,SBLOCK.y],[SBLOCK.x+SBLOCK.w,SBLOCK.y+SBLOCK.h],
+     [SBLOCK.x,SBLOCK.y+SBLOCK.h]].forEach(p=>pts.push(p));
+    SITES.forEach(r=>{ pts.push([r.gx-1,r.gy-1],[r.gx+1,r.gy+1]); });
+    return pts;
+  }
+  DISTRICTS.forEach(d=>{ pts.push([d.ox-1,d.oy-1],[d.ox+5,d.oy-1],[d.ox+5,d.oy+7.6],[d.ox-1,d.oy+7.6]); });
+  AGENTS.forEach(a=>{ if(a.gx!=null) pts.push([a.gx-1,a.gy-1],[a.gx+1,a.gy+1]); });
+  // The brain clouds float off the west shore on purpose (memory the city shares, not
+  // part of it); fitting the island to their ground doubled it and shrank the city to a
+  // third at Fit zoom, so they stay over water. fitCity still frames them.
+  return pts;
+}
+function islandShape(){
+  const P=islandPoints(), key=mode+':'+P.length+':'+(P[0]||[]).join(',')+':'+(P[P.length-1]||[]).join(',');
+  if(_isl && _islKey===key) return _isl;
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+  P.forEach(([x,y])=>{x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y);});
+  if(!P.length){ x0=y0=0; x1=y1=10; }
+  const cx=(x0+x1)/2, cy=(y0+y1)/2;
+  let rx=(x1-x0)/2+1.6, ry=(y1-y0)/2+1.6, need=0;
+  P.forEach(([x,y])=>{ need=Math.max(need,Math.pow(Math.pow(Math.abs((x-cx)/rx),SHORE_N)+Math.pow(Math.abs((y-cy)/ry),SHORE_N),1/SHORE_N)); });
+  const k=Math.max(1,need/SHORE_FIT); rx*=k; ry*=k;
+  _isl={cx,cy,rx,ry,R:Math.max(rx,ry)};
+  const pts=[];
+  for(let k=0;k<96;k++) pts.push(shoreAt(_isl,k/96*Math.PI*2));
+  _isl.pts=pts; _islKey=key;
+  return _isl;
+}
+/* Piers: the outside services (Slack, GitHub, Gmail, a bank...) that automations talk
+   to directly, from each agent's talks_to in agents.toml. Busiest first.
+   The clouds are memory the system shares; a pier is a system it calls on every run.
+   Roads to the piers are drawn only for the building (or pier) you point at. */
+// more than 9 services and the rest share one "Other services" pier
+(()=>{ const n={}; AGENTS.forEach(a=>(a.sources||[]).forEach(x=>n[x]=(n[x]||0)+1));
+  const keep=Object.keys(n).sort((p,q)=>n[q]-n[p]||p.localeCompare(q)).slice(0,9);
+  AGENTS.forEach(a=>{ if(!a.sources) return;
+    a.sources=[...new Set(a.sources.map(x=>keep.includes(x)?x:'Other'))]; }); })();
+const PIER_ORDER=(()=>{ const n={}; AGENTS.forEach(a=>(a.sources||[]).forEach(x=>n[x]=(n[x]||0)+1));
+  return Object.keys(n).sort((p,q)=>(p==='Other')-(q==='Other')||n[q]-n[p]||p.localeCompare(q)); })();
+const PIER_COL={}; PIER_ORDER.forEach((n,k)=>PIER_COL[n]=n==='Other'?'#b0b8c8':['#e3a6ff','#5fd0ff','#8f9bff','#7ee0c3','#ffd27a','#4fa3ff','#ff9fb2','#c6e47a','#ffb38a'][k%9]);
+const PIER_NAME={Other:'Other services'};
+let PIERS=[], hoverPier=null;
+function layoutPiers(){
+  const used=PIER_ORDER.filter(n=>AGENTS.some(a=>(a.sources||[]).includes(n)));
+  const isl=islandShape(), rx=isl.rx, ry=isl.ry;
+  // spread along the right and lower shore, away from the clouds in the upper left
+  PIERS=used.map((name,k)=>{
+    const th=-0.55+k*(2.7/Math.max(1,used.length-1));
+    const [sx,sy]=shoreAt(isl,th);
+    const ux=Math.cos(th)*rx, uy=Math.sin(th)*ry, L=Math.hypot(ux,uy)||1;
+    return {name, sx, sy, ux:ux/L, uy:uy/L,
+            n:AGENTS.filter(a=>(a.sources||[]).includes(name)).length};
+  });
+}
+const pierFocus=()=>(hover>=0&&hover<AGENTS.length)?AGENTS[hover]:(sel>=0&&sel<AGENTS.length?AGENTS[sel]:null);
+// the pointed-at building to its piers, or a pier to its buildings — drawn over the ground
+function drawPierRoads(){
+  const ha=pierFocus();
+  PIERS.forEach(p=>{
+    const lit = hoverPier===p.name ? AGENTS.filter(a=>(a.sources||[]).includes(p.name)&&!a._dim)
+              : (ha && (ha.sources||[]).includes(p.name) ? [ha] : []);
+    const s0=proj(p.sx-p.ux*.2,p.sy-p.uy*.2,0);
+    lit.forEach(a=>{
+      const b=proj(a.gx,a.gy,0);
+      ctx.save(); ctx.setLineDash([6,5]); ctx.lineDashOffset=reduced?0:-(t/40)%11;
+      ctx.beginPath(); ctx.moveTo(s0.X,s0.Y); ctx.lineTo(b.X,b.Y);
+      ctx.strokeStyle=PIER_COL[p.name]+'cc'; ctx.lineWidth=2/Math.max(.6,cam.s); ctx.stroke(); ctx.restore();
+    });
+  });
+}
+function drawPiers(){
+  if(!PIERS.length) layoutPiers();
+  const ha=pierFocus();
+  PIERS.forEach(p=>{
+    const L=2.4, w=.28, nx=-p.uy*w, ny=p.ux*w;
+    const a0=[p.sx-p.ux*.3, p.sy-p.uy*.3], a1=[p.sx+p.ux*L, p.sy+p.uy*L];
+    const deck=[[a0[0]+nx,a0[1]+ny],[a1[0]+nx,a1[1]+ny],[a1[0]-nx,a1[1]-ny],[a0[0]-nx,a0[1]-ny]];
+    const top=deck.map(([x,y])=>proj(x,y,6)), bot=deck.map(([x,y])=>proj(x,y,0));
+    poly(ctx,[top[1],top[2],bot[2],bot[1]],HIVE?'#3a1530':'#3a2c1b');
+    poly(ctx,top,HIVE?'#6a2f5c':'#6b5233'); poly(ctx,top,null,HIVE?'#9a4a86':'#8a6a42',1);
+    for(let k=0;k<=4;k++){                       // posts down into the water
+      const u=k/4, x=a0[0]+(a1[0]-a0[0])*u, y=a0[1]+(a1[1]-a0[1])*u;
+      [[x+nx,y+ny],[x-nx,y-ny]].forEach(([px,py])=>{
+        const q1=proj(px,py,6), q2=proj(px,py,-10);
+        ctx.beginPath(); ctx.moveTo(q1.X,q1.Y); ctx.lineTo(q2.X,q2.Y);
+        ctx.strokeStyle='#2a2014'; ctx.lineWidth=1.6; ctx.stroke();
+      });
+    }
+    // a lantern at the end, in the system's colour
+    const e=proj(a1[0],a1[1],14), on=hoverPier===p.name || (ha&&(ha.sources||[]).includes(p.name));
+    const pu=reduced?.7:.6+.4*Math.sin(t/600+p.n);
+    const g=ctx.createRadialGradient(e.X,e.Y,0,e.X,e.Y,on?26:16);
+    g.addColorStop(0,PIER_COL[p.name]+(on?'ee':'99')); g.addColorStop(1,PIER_COL[p.name]+'00');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(e.X,e.Y,on?26:16,0,7); ctx.fill();
+    ctx.beginPath(); ctx.arc(e.X,e.Y,3+pu,0,7); ctx.fillStyle=PIER_COL[p.name]; ctx.fill();
+    const lp=proj(a1[0]+p.ux*.5,a1[1]+p.uy*.5,0);
+    onScreen(lp.X,lp.Y,(x,y)=>{
+      ctx.font='600 11.5px '+FONT(); ctx.textAlign='center';
+      ctx.fillStyle=on?'#fff':PIER_COL[p.name]; ctx.fillText(PIER_NAME[p.name]||p.name,x,y+16);
+      ctx.font='10.5px '+FONT(); ctx.fillStyle='rgba(180,190,210,.8)';
+      ctx.fillText(p.n+' automation'+(p.n===1?'':'s'),x,y+29);
+    });
+  });
+}
+function pickPier(mx,my){
+  for(const p of PIERS){
+    const e=proj(p.sx+p.ux*2.4,p.sy+p.uy*2.4,8), m=proj(p.sx+p.ux*1.2,p.sy+p.uy*1.2,6);
+    for(const q of [e,m]){
+      const x=q.X*cam.s+cam.x, y=q.Y*cam.s+cam.y;
+      if(Math.hypot(mx-x,my-y)<Math.max(16,30*cam.s)) return p;
+    }
+  }
+  return null;
+}
+
+// the island's outline at k times its size, around its own centre (k<1 inland, >1 out to sea)
+function ring(isl,k){
+  return isl.pts.map(([x,y])=>proj(isl.cx+(x-isl.cx)*k, isl.cy+(y-isl.cy)*k, 0));
+}
+function tracePath(pts){
+  ctx.beginPath(); pts.forEach((p,i)=>i?ctx.lineTo(p.X,p.Y):ctx.moveTo(p.X,p.Y)); ctx.closePath();
+}
+// open water: small wave marks that drift with the swell and move with the map when panned
+function drawSea(isl){
+  const R=isl.R+24, rx=isl.rx*1.12, ry=isl.ry*1.12;
+  ctx.lineWidth=1.3; ctx.lineCap='round';
+  for(let k=0;k<280;k++){
+    let gx=isl.cx+(rnd(k*3.1+1)-.5)*2*R, gy=isl.cy+(rnd(k*5.7+2)-.5)*2*R;
+    if(((gx-isl.cx)/rx)**2+((gy-isl.cy)/ry)**2<1) continue;      // not on the island
+    if(!reduced) gx+=((t/14000+rnd(k*7))%1)*1.6;
+    const p=proj(gx,gy,0), a=reduced?.12:.06+.14*Math.abs(Math.sin(t/2100+k*1.3)), w=5+rnd(k*11)*5;
+    ctx.beginPath(); ctx.moveTo(p.X-w,p.Y);
+    ctx.quadraticCurveTo(p.X-w/2,p.Y-2.6,p.X,p.Y); ctx.quadraticCurveTo(p.X+w/2,p.Y+2.6,p.X+w,p.Y);
+    ctx.strokeStyle=`rgba(140,190,225,${a})`; ctx.stroke();
+  }
+}
+function drawCreep(isl){
+  const c=proj(isl.cx,isl.cy,0);
+  // tendrils reaching out from the creep's edge
+  const edge=ring(isl,1.03);
+  edge.forEach((p,k)=>{
+    if(k%2) return;
+    const d=rnd(k*9)*26+14, ang=Math.atan2(p.Y-c.Y,p.X-c.X)+(rnd(k*3)-.5)*.6;
+    const sw=reduced?0:Math.sin(t/1300+k)*3;
+    ctx.beginPath(); ctx.moveTo(p.X,p.Y);
+    ctx.quadraticCurveTo(p.X+Math.cos(ang)*d*.5+sw,p.Y+Math.sin(ang)*d*.5,p.X+Math.cos(ang)*d,p.Y+Math.sin(ang)*d*.6);
+    ctx.strokeStyle='rgba(120,40,100,.7)'; ctx.lineWidth=2.4; ctx.stroke();
+  });
+  const g=ctx.createRadialGradient(c.X,c.Y,0,c.X,c.Y,isl.R*TW*.62);
+  g.addColorStop(0,'#3e1a3b'); g.addColorStop(1,'#2a1028');
+  tracePath(edge); ctx.fillStyle=g; ctx.fill();
+  ctx.strokeStyle='#6a2a5e'; ctx.lineWidth=3; ctx.stroke();
+  // veins that pulse across it
+  ctx.save(); tracePath(edge); ctx.clip();
+  for(let k=0;k<34;k++){
+    const x1=isl.cx+(rnd(k*2.1)-.5)*isl.rx*1.8, y1=isl.cy+(rnd(k*3.3)-.5)*isl.ry*1.8;
+    const x2=x1+(rnd(k*4.7)-.5)*7, y2=y1+(rnd(k*5.9)-.5)*7;
+    const p1=proj(x1,y1,0), p2=proj(x2,y2,0), m=proj((x1+x2)/2+(rnd(k)-.5)*3,(y1+y2)/2,0);
+    const a=reduced?.25:.15+.2*(.5+.5*Math.sin(t/900+k*1.7));
+    ctx.beginPath(); ctx.moveTo(p1.X,p1.Y); ctx.quadraticCurveTo(m.X,m.Y,p2.X,p2.Y);
+    ctx.strokeStyle=`rgba(190,70,160,${a})`; ctx.lineWidth=1.6; ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawIsland(){
+  const isl=islandShape();
+  if(HIVE){ drawCreep(isl); return; }
+  drawSea(isl);
+  // shallows: the water lightens toward the shore
+  [[1.17,.08],[1.10,.11],[1.05,.15]].forEach(([k,a])=>{
+    tracePath(ring(isl,k)); ctx.fillStyle=`rgba(46,120,140,${a})`; ctx.fill();
+  });
+  // the beach: sand from the waterline in to the vegetation edge
+  const c=proj(isl.cx,isl.cy,0);
+  const sand=ctx.createRadialGradient(c.X,c.Y,isl.R*TW*.3,c.X,c.Y,isl.R*TW*.62);
+  sand.addColorStop(0,'#4a4434'); sand.addColorStop(1,'#5e5642');
+  tracePath(ring(isl,1)); ctx.fillStyle=sand; ctx.fill();
+  tracePath(ring(isl,1)); ctx.strokeStyle='#3d3a2f'; ctx.lineWidth=3; ctx.stroke();   // wet sand
+  // surf: two foam lines lapping in and out at the waterline
+  if(!reduced){
+    [[0,.42],[1.7,.22]].forEach(([ph,a])=>{
+      const k=1.012+.016*(1+Math.sin(t/950+ph));
+      tracePath(ring(isl,k)); ctx.strokeStyle=`rgba(225,238,246,${a*(.6+.4*Math.sin(t/950+ph+1.2))})`;
+      ctx.lineWidth=1.8; ctx.stroke();
+    });
+  } else { tracePath(ring(isl,1.015)); ctx.strokeStyle='rgba(225,238,246,.3)'; ctx.lineWidth=1.8; ctx.stroke(); }
+  // land, inside the beach
+  const inland=ring(isl,.93);
+  const land=ctx.createRadialGradient(c.X,c.Y,0,c.X,c.Y,isl.R*TW*.6);
+  land.addColorStop(0,'#1b2332'); land.addColorStop(1,'#151d29');
+  tracePath(inland); ctx.fillStyle=land; ctx.fill();
+  ctx.strokeStyle='#2b3a37'; ctx.lineWidth=2; ctx.stroke();         // where the grass starts
+  // the survey grid, on land only
+  ctx.save(); tracePath(inland); ctx.clip(); drawGrid(isl); ctx.restore();
+}
+function drawGrid(isl){
+  const cx=isl.cx, cy=isl.cy, R=Math.ceil(isl.R)+2;
+  const c=proj(cx,cy,0);
+  const fade=ctx.createRadialGradient(c.X,c.Y,0,c.X,c.Y,R*TW*.62);
+  fade.addColorStop(0,'rgba(120,140,190,.09)'); fade.addColorStop(1,'rgba(120,140,190,.02)');
+  ctx.strokeStyle=fade; ctx.lineWidth=1/cam.s;
+  ctx.beginPath();
+  for(let k=-R;k<=R;k+=2){
+    let a=proj(cx+k,cy-R,0), b=proj(cx+k,cy+R,0); ctx.moveTo(a.X,a.Y); ctx.lineTo(b.X,b.Y);
+    a=proj(cx-R,cy+k,0); b=proj(cx+R,cy+k,0); ctx.moveTo(a.X,a.Y); ctx.lineTo(b.X,b.Y);
+  }
+  ctx.stroke();
+}
+function drawGround(){
+  DISTRICTS.forEach(d=>{
+    const c=[[d.ox-1,d.oy-1],[d.ox+5,d.oy-1],[d.ox+5,d.oy+7],[d.ox-1,d.oy+7]]
+      .map(([x,y])=>proj(x,y,0));
+    poly(ctx,c,HIVE?'#2a1027':shade(d.tint,.30));
+    poly(ctx,c,null,HIVE?'#5a2350':shade(d.tint,.62),1.5);
+  });
+}
+function drawLabels(){
+  DISTRICTS.forEach(d=>{
+    const l=proj(d.ox+2,d.oy+7.4,0);
+    onScreen(l.X,l.Y,(x,y)=>{
+      ctx.font='600 12px '+FONT(); ctx.textAlign='center';
+      try{ctx.letterSpacing='2px';}catch(e){}
+      const txt=d.name.toUpperCase(), w=ctx.measureText(txt).width+24;
+      ctx.beginPath(); ctx.roundRect(x-w/2,y+4,w,24,12);
+      ctx.fillStyle='rgba(10,12,18,.88)'; ctx.fill();
+      ctx.strokeStyle=shade(d.tint,1.3); ctx.lineWidth=1; ctx.stroke();
+      ctx.fillStyle=shade(d.tint,2.6); ctx.fillText(txt,x,y+20.5);
+    });
+  });
+}
+function drawRoads(){
+  const xs=[...new Set(DISTRICTS.map(d=>d.ox))].sort((a,b)=>a-b);
+  const ys=[...new Set(DISTRICTS.map(d=>d.oy))].sort((a,b)=>a-b);
+  const lines=[];
+  for(let i=1;i<xs.length;i++) lines.push([[xs[i]-2,ys[0]-2],[xs[i]-2,ys[ys.length-1]+8]]);
+  for(let i=1;i<ys.length;i++) lines.push([[xs[0]-2,ys[i]-2],[xs[xs.length-1]+6,ys[i]-2]]);
+  lines.forEach(([p,q])=>{
+    const a=proj(p[0],p[1],0), b=proj(q[0],q[1],0);
+    ctx.beginPath();ctx.moveTo(a.X,a.Y);ctx.lineTo(b.X,b.Y);
+    ctx.strokeStyle=HIVE?'#3a1433':'#161a24';ctx.lineWidth=HIVE?12:24;ctx.stroke();
+    ctx.beginPath();ctx.moveTo(a.X,a.Y);ctx.lineTo(b.X,b.Y);
+    ctx.strokeStyle=HIVE?'#8a2f74':'#232a38';ctx.lineWidth=1;ctx.setLineDash([9,13]);
+    ctx.lineDashOffset=reduced?0:-(t/28)%22;ctx.stroke();ctx.setLineDash([]);
+  });
+}
+
+/* Tier buys architecture only: footprint, setbacks, cornices, roof plant, a spire.
+   State still owns the lighting, so a tier-5 scaffold reads as a monument nobody
+   switched on. */
+const FOOT={1:0.34, 2:0.44, 3:0.47, 4:0.53, 5:0.60};
+
+/* ---------------- Hive skin ----------------
+   The same city redrawn as an alien hive: creep for land, organic spires for
+   buildings. Only the bodies change, never the meaning — glowing pustules are lit
+   windows (it ran recently), eggs are scaffolding (never installed), smoke is still
+   failing, the watchdog is an eye on a stalk, clouds are floating sacs. */
+let HIVE=false; try{ HIVE=localStorage.getItem('city-theme')==='hive'; }catch(e){}
+function mixHex(a,b,u){
+  const p=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+  const [x,y]=[p(a),p(b)];
+  return '#'+x.map((v,i)=>Math.round(v+(y[i]-v)*u).toString(16).padStart(2,'0')).join('');
+}
+// a pod's outline as the current path — the body, and what the watchdog layer traces
+function podPath(c,a,idx,base,hgt){
+  const s0=FOOT[a.tier]||.44, hw=64*s0*.8;
+  const b=proj(a.gx,a.gy,base), tp=proj(a.gx,a.gy,base+hgt);
+  const lean=(rnd(idx*5)-.5)*hw*.5, tipX=tp.X+lean, tipY=tp.Y-6;
+  c.beginPath(); c.moveTo(b.X-hw,b.Y);
+  c.bezierCurveTo(b.X-hw*1.25,b.Y-hgt*.4, tipX-hw*.45,tipY+hgt*.28, tipX,tipY);
+  c.bezierCurveTo(tipX+hw*.45,tipY+hgt*.28, b.X+hw*1.25,b.Y-hgt*.4, b.X+hw,b.Y);
+  c.closePath();
+  return {tipX,tipY};
+}
+function drawPod(c,a,idx,base,hgt,col){
+  const s0=FOOT[a.tier]||.44, hw=64*s0*.8;
+  const b=proj(a.gx,a.gy,base), tp=proj(a.gx,a.gy,base+hgt);
+  const skin=mixHex(col.startsWith('#')?col:'#2a3350','#6a2a55',.6);
+  // the mound it grows from
+  c.beginPath(); c.ellipse(b.X,b.Y,hw*1.3,hw*.58,0,0,7); c.fillStyle=shade(skin,.55); c.fill();
+  if(a.state==='scaffold'){                       // unhatched: a clutch of eggs
+    [[-.45,0],[.4,.1],[0,-.25]].forEach(([dx,dy],k)=>{
+      const x=b.X+dx*hw, y=b.Y+dy*hw-9, pu=reduced?.5:.5+.5*Math.sin(t/800+k+idx);
+      c.beginPath(); c.ellipse(x,y,7,10,0,0,7);
+      c.fillStyle=`rgba(205,185,160,${.75})`; c.fill();
+      c.strokeStyle=`rgba(255,183,77,${.35+.4*pu})`; c.lineWidth=1.2; c.stroke();
+      c.beginPath(); c.moveTo(x-3,y-4); c.quadraticCurveTo(x+2,y,x-1,y+6);
+      c.strokeStyle='rgba(120,70,80,.6)'; c.lineWidth=1; c.stroke();
+    });
+    return;
+  }
+  // the spire: a bulging, tapering carapace
+  const {tipX,tipY}=podPath(c,a,idx,base,hgt);
+  const g=c.createLinearGradient(b.X-hw,0,b.X+hw,0);
+  g.addColorStop(0,shade(skin,.7)); g.addColorStop(.55,shade(skin,1.25)); g.addColorStop(1,shade(skin,.85));
+  c.fillStyle=g; c.fill();
+  c.strokeStyle=shade(skin,1.6); c.lineWidth=1; c.stroke();
+  // carapace ribs
+  const n=Math.max(2,Math.round(hgt/FLOOR));
+  for(let k=1;k<n;k++){
+    const u=k/n, y=b.Y+(tipY-b.Y)*u, w=hw*(1.05-u*.85);
+    c.beginPath(); c.moveTo(b.X+(tipX-b.X)*u-w,y); c.quadraticCurveTo(b.X+(tipX-b.X)*u,y+w*.35,b.X+(tipX-b.X)*u+w,y);
+    c.strokeStyle=shade(skin,.6); c.lineWidth=1.2; c.stroke();
+  }
+  if(a.state==='ruin') return;                    // withered: no light left in it
+  // pustules: lit means it ran recently, exactly like windows
+  const lf=litFrac(a), m=n*2+(a.tier>=3?2:0);
+  for(let k=0;k<m;k++){
+    const u=.12+(k/m)*.72, w=hw*(1.05-u*.85);
+    const x=b.X+(tipX-b.X)*u+(rnd(idx*13+k)-.5)*w*1.3, y=b.Y+(tipY-b.Y)*u+(rnd(idx*7+k)-.5)*5;
+    const on=rnd(idx*31+k*7)<lf, fl=(on&&!reduced)?.7+.3*Math.sin(t/400+idx+k):1;
+    if(on){ const gl=c.createRadialGradient(x,y,0,x,y,6); gl.addColorStop(0,`rgba(214,255,120,${.55*fl})`);
+            gl.addColorStop(1,'rgba(214,255,120,0)'); c.fillStyle=gl; c.beginPath(); c.arc(x,y,6,0,7); c.fill(); }
+    c.beginPath(); c.arc(x,y,2.1,0,7); c.fillStyle=on?`rgba(220,255,140,${fl})`:'rgba(40,14,34,.9)'; c.fill();
+  }
+  // spikes on the important ones
+  if(a.tier>=4){
+    const k=a.tier>=5?5:3;
+    for(let j=0;j<k;j++){
+      const ang=-Math.PI/2+(j-(k-1)/2)*.42, L=a.tier>=5?20:13;
+      c.beginPath(); c.moveTo(tipX,tipY+3);
+      c.quadraticCurveTo(tipX+Math.cos(ang)*L*.4,tipY+Math.sin(ang)*L*.6,tipX+Math.cos(ang)*L,tipY+Math.sin(ang)*L);
+      c.strokeStyle=shade(skin,1.4); c.lineWidth=2; c.stroke();
+    }
+  }
+}
+// the watchdog: an eye on a stalk that sweeps the hive
+function drawEyeStalk(c,a,base,hgt){
+  const b=proj(a.gx,a.gy,base), e=proj(a.gx,a.gy,lampZ(a));
+  const sway=reduced?0:Math.sin(t/1400)*4;
+  c.beginPath(); c.moveTo(b.X-7,b.Y); c.bezierCurveTo(b.X-12,b.Y-hgt*.4,e.X-6+sway,e.Y+hgt*.3,e.X-3+sway,e.Y+6);
+  c.lineTo(e.X+3+sway,e.Y+6); c.bezierCurveTo(e.X+6+sway,e.Y+hgt*.3,b.X+12,b.Y-hgt*.4,b.X+7,b.Y);
+  c.closePath(); c.fillStyle='#5a2450'; c.fill(); c.strokeStyle='#8a3a78'; c.lineWidth=1; c.stroke();
+  const x=e.X+sway, y=e.Y, look=watchView&&!reduced?(t/2400)%(Math.PI*2):(reduced?0:Math.sin(t/2100)*1.2);
+  const gl=c.createRadialGradient(x,y,0,x,y,26); gl.addColorStop(0,'rgba(255,190,90,.45)'); gl.addColorStop(1,'rgba(255,190,90,0)');
+  c.fillStyle=gl; c.beginPath(); c.arc(x,y,26,0,7); c.fill();
+  c.beginPath(); c.ellipse(x,y,11,8,0,0,7); c.fillStyle='#efe2c4'; c.fill();
+  const ix=x+Math.cos(look)*4, iy=y+Math.sin(look)*2.5;
+  c.beginPath(); c.arc(ix,iy,5,0,7); c.fillStyle='#ffa83a'; c.fill();
+  c.beginPath(); c.ellipse(ix,iy,1.3,4.2,0,0,7); c.fillStyle='#160810'; c.fill();
+  c.beginPath(); c.ellipse(x,y,11,8,0,0,7); c.strokeStyle='#8a3a78'; c.lineWidth=1.5; c.stroke();
+}
+
+function segmentsFor(a,base,hgt){
+  const s0=FOOT[a.tier]||0.44;
+  if(a.tier>=5) return [{z0:base,          z1:base+hgt*.55, s:s0,      cols:3},
+                        {z0:base+hgt*.55,  z1:base+hgt*.85, s:s0*.76,  cols:3},
+                        {z0:base+hgt*.85,  z1:base+hgt,     s:s0*.52,  cols:2}];
+  if(a.tier===4) return [{z0:base,         z1:base+hgt*.74, s:s0,      cols:3},
+                         {z0:base+hgt*.74, z1:base+hgt,     s:s0*.74,  cols:2}];
+  return [{z0:base, z1:base+hgt, s:s0, cols:a.tier<=1?2:3}];
+}
+const corners=(a,s,z)=>[proj(a.gx-s,a.gy-s,z),proj(a.gx+s,a.gy-s,z),
+                        proj(a.gx+s,a.gy+s,z),proj(a.gx-s,a.gy+s,z)];
+
+/* The watchdog is a lighthouse: it is the one building whose job is to look at all
+   the others. Red and white bands, a lit lamp room, beams that turn. */
+// the watchdog is whichever agent says role = "watchdog" (or is called watchdog)
+const isWD=a=>a.role==='watchdog'||(a.id==='watchdog'&&!AGENTS.some(b=>b.role==='watchdog'));
+const lampZ=a=>baseOf(a)+heightOf(a)*.82+7;
+function drawLighthouse(c,a,base,hgt){
+  const zt=base+hgt*.82, bands=6;
+  const sz=u=>.36-.14*u;                         // tapers toward the top
+  const box=(s0,s1,z0,z1,right,left)=>{
+    const [,B1,C1,D1]=corners(a,s1,z1), [,B0,C0,D0]=corners(a,s0,z0);
+    poly(c,[B1,C1,C0,B0],right); poly(c,[D1,C1,C0,D0],left);
+  };
+  for(let k=0;k<bands;k++){
+    const u0=k/bands, u1=(k+1)/bands, red=k%2===1;
+    box(sz(u0),sz(u1),base+(zt-base)*u0,base+(zt-base)*u1,
+        red?'#d8524c':'#eef1f6', red?'#a43c37':'#b9c0cc');
+  }
+  // gallery deck and its rail
+  const g=sz(1)+.08;
+  box(g,g,zt,zt+3,'#3a4050','#2a2f3a');
+  poly(c,corners(a,g,zt+3),'#4a5163');
+  // the lamp room: glass, lit
+  const pu=reduced?.7:.55+.45*Math.sin(t/500);
+  box(.15,.15,zt+3,zt+15,`rgba(255,232,170,${.75+.2*pu})`,`rgba(230,196,120,${.7+.2*pu})`);
+  // red cap
+  const [cA,cB,cC,cD]=corners(a,.19,zt+15), tip=proj(a.gx,a.gy,zt+27);
+  poly(c,[cB,cC,tip],'#c2443f'); poly(c,[cD,cC,tip],'#8f302c');
+  const o=proj(a.gx,a.gy,lampZ(a));
+  const gl=c.createRadialGradient(o.X,o.Y,0,o.X,o.Y,30);
+  gl.addColorStop(0,`rgba(255,238,190,${.55*pu})`); gl.addColorStop(1,'rgba(255,238,190,0)');
+  c.fillStyle=gl; c.beginPath(); c.arc(o.X,o.Y,30,0,7); c.fill();
+  // the turning beams, faint, while the watchdog layer is off (it draws its own)
+  if(!watchView && !reduced){
+    const ang=t/1700;
+    [0,Math.PI].forEach(off=>{
+      const A=ang+off, L=190, w=.09;
+      const g2=c.createLinearGradient(o.X,o.Y,o.X+Math.cos(A)*L,o.Y+Math.sin(A)*L*.5);
+      g2.addColorStop(0,'rgba(255,240,200,.22)'); g2.addColorStop(1,'rgba(255,240,200,0)');
+      c.beginPath(); c.moveTo(o.X,o.Y);
+      c.lineTo(o.X+Math.cos(A-w)*L,o.Y+Math.sin(A-w)*L*.5);
+      c.lineTo(o.X+Math.cos(A+w)*L,o.Y+Math.sin(A+w)*L*.5);
+      c.closePath(); c.fillStyle=g2; c.fill();
+    });
+  }
+}
+
+function drawBuilding(a,idx,picking){
+  const c=picking?pctx:ctx;
+  const dim=(!picking && (a._dim || watchDim(a) || (tourFocus && !tourFocus.has(a.id))));
+  if(dim){ c.save(); c.globalAlpha=0.14; }
+
+  let base=baseOf(a);
+  if(offMachine(a) && !picking){                // plinth: it lives off this machine
+    const ps=(FOOT[a.tier]||.44)+.18, pc=a.host==='server';
+    const [A,B,C,D]=corners(a,ps,10), [,B0,C0,D0]=corners(a,ps,0);
+    poly(c,[B,C,C0,B0],pc?'#173630':'#1a2c42'); poly(c,[D,C,C0,D0],pc?'#122b26':'#152436');
+    poly(c,[A,B,C,D],pc?'#1d433b':'#21384f'); poly(c,[A,B,C,D],null,pc?'#5fd0b055':'#6fb6ff55',1.2);
+  }
+  const hgt=heightOf(a), segs=segmentsFor(a,base,hgt), col=bodyColor(a);
+  const top=segs[segs.length-1];
+
+  if(picking){
+    const pc='#'+(idx+1).toString(16).padStart(6,'0');
+    segs.forEach(g=>{
+      const [A,B,C,D]=corners(a,g.s,g.z1), [,B0,C0,D0]=corners(a,g.s,g.z0);
+      poly(c,[B,C,C0,B0],pc); poly(c,[D,C,C0,D0],pc); poly(c,[A,B,C,D],pc);
+    });
+    return;
+  }
+
+  if(isWD(a) && a.state!=='scaffold'){
+    HIVE ? drawEyeStalk(c,a,base,hgt) : drawLighthouse(c,a,base,hgt);
+    if(dim) c.restore();
+    return;
+  }
+
+  if(HIVE){
+    drawPod(c,a,idx,base,hgt,col);
+    if(a.state==='scaffold'||a.state==='ruin'){ if(dim) c.restore(); return; }
+  }
+
+  if(!HIVE && a.state==='scaffold'){   // built, never switched on — but keep the silhouette
+    segs.forEach(g=>{
+      const [A,B,C,D]=corners(a,g.s,g.z1), [A0,B0,C0,D0]=corners(a,g.s,g.z0);
+      poly(c,[A,B,C,D],null,'#6b5a2e',1.3);
+      [[A,A0],[B,B0],[C,C0],[D,D0]].forEach(([p,q])=>{
+        c.beginPath();c.moveTo(p.X,p.Y);c.lineTo(q.X,q.Y);
+        c.strokeStyle='#6b5a2e';c.lineWidth=1.3;c.stroke();
+      });
+      const n=Math.max(1,Math.round((g.z1-g.z0)/FLOOR));
+      for(let f=1;f<n;f++){
+        const [,b1,c1,d1]=corners(a,g.s,g.z0+f*(g.z1-g.z0)/n);
+        c.beginPath();c.moveTo(b1.X,b1.Y);c.lineTo(c1.X,c1.Y);c.lineTo(d1.X,d1.Y);
+        c.strokeStyle='#5c4e28';c.lineWidth=1;c.stroke();
+      }
+      c.beginPath();c.moveTo(B0.X,B0.Y);c.lineTo(C.X,C.Y);
+      c.moveTo(C0.X,C0.Y);c.lineTo(D.X,D.Y);
+      c.strokeStyle='#ffb74d70';c.lineWidth=1.4;c.stroke();
+    });
+    if(dim) c.restore();
+    return;
+  }
+
+  if(!HIVE) segs.forEach((g,gi)=>{
+    const [A,B,C,D]=corners(a,g.s,g.z1), [,B0,C0,D0]=corners(a,g.s,g.z0);
+    poly(c,[B,C,C0,B0],shade(col,1.08));
+    poly(c,[D,C,C0,D0],shade(col,.66));
+    poly(c,[A,B,C,D],shade(col,1.55));
+    poly(c,[A,B,C,D],null,shade(col,2.1),1);
+
+    if(a.state==='ruin') return;
+
+    // windows, per segment
+    const n=Math.max(1,Math.round((g.z1-g.z0)/FLOOR)), lf=litFrac(a);
+    [[B,B0,C,C0,1],[D,D0,C,C0,2]].forEach(([Tp,Bp,Tq,Bq,side])=>{
+      for(let f=0;f<n;f++) for(let k=0;k<g.cols;k++){
+        const w=Math.min(.22,0.76/g.cols), gap=(0.78-w*g.cols)/g.cols;
+        const u0=.11+k*(w+gap), u1=u0+w;
+        const v0=(f+.28)/n, v1=(f+.76)/n;
+        const tl=lerp(Tp,Tq,u0), tr=lerp(Tp,Tq,u1), bl=lerp(Bp,Bq,u0), br=lerp(Bp,Bq,u1);
+        const on=rnd(idx*31+gi*53+f*7+k*3+side*17)<lf;
+        const fl=(on && !reduced && rnd(idx+f+k)>.93)?.55+.45*Math.sin(t/260+idx):1;
+        poly(c,[lerp(tl,bl,1-v1),lerp(tr,br,1-v1),lerp(tr,br,1-v0),lerp(tl,bl,1-v0)],
+          on ? `rgba(255,240,214,${(side===1?.95:.72)*fl})`
+             : (side===1?'rgba(12,16,24,.55)':'rgba(8,11,17,.6)'));
+      }
+      // pilasters: the vertical ribs that make a building read as built, not extruded
+      if(a.tier>=3){
+        for(let k=0;k<=g.cols;k++){
+          const u=.09+k*(0.78/g.cols);
+          const p1=lerp(Tp,Tq,u), p2=lerp(Bp,Bq,u);
+          c.beginPath();c.moveTo(p1.X,p1.Y);c.lineTo(p2.X,p2.Y);
+          c.strokeStyle=shade(col,side===1?1.9:1.25);c.lineWidth=1;c.stroke();
+        }
+      }
+    });
+
+    // colonnade at street level on a monument
+    if(a.tier>=5 && gi===0){
+      const capZ=g.z0+15;
+      const [,hB,hC,hD]=corners(a,g.s,capZ);     // colonnade cap, 15px up
+      [[hB,B0,hC,C0],[hD,D0,hC,C0]].forEach(([Tp,Bp,Tq,Bq])=>{
+        for(let k=0;k<=5;k++){
+          const u=.08+k*.168;
+          const pT=lerp(Tp,Tq,u), pB=lerp(Bp,Bq,u);
+          c.beginPath();c.moveTo(pT.X,pT.Y);c.lineTo(pB.X,pB.Y);
+          c.strokeStyle=shade(col,2.4);c.lineWidth=1.5;c.stroke();
+        }
+        c.beginPath();c.moveTo(Tp.X,Tp.Y);c.lineTo(Tq.X,Tq.Y);
+        c.strokeStyle=shade(col,1.9);c.lineWidth=1.2;c.stroke();
+      });
+    }
+
+    // cornice: a thin slab capping each setback
+    if(a.tier>=3){
+      const cs=g.s+0.035, [cA,cB,cC,cD]=corners(a,cs,g.z1+3), [,cB0,cC0,cD0]=corners(a,cs,g.z1);
+      poly(c,[cB,cC,cC0,cB0],shade(col,1.35));
+      poly(c,[cD,cC,cC0,cD0],shade(col,.9));
+      poly(c,[cA,cB,cC,cD],shade(col,1.95));
+    }
+  });
+
+  if(a.state==='ruin' && !HIVE){               // broken roofline
+    const [A,B,C,D]=corners(a,top.s,top.z1);
+    c.beginPath();
+    c.moveTo(lerp(A,B,.3).X,lerp(A,B,.3).Y);
+    c.lineTo(lerp(B,C,.55).X,lerp(B,C,.55).Y-5);
+    c.lineTo(lerp(C,D,.4).X,lerp(C,D,.4).Y);
+    c.strokeStyle='#161a22';c.lineWidth=2.2;c.stroke();
+    if(dim) c.restore();
+    return;
+  }
+
+  // roof plant: the mechanical clutter a real working building carries
+  if(a.tier>=3 && !HIVE){
+    const units=a.tier>=5?3:(a.tier===4?3:2);
+    for(let k=0;k<units;k++){
+      const ox=(rnd(idx*17+k)-.5)*top.s*1.1, oy=(rnd(idx*29+k*5)-.5)*top.s*1.1;
+      const bs=0.055+rnd(idx+k)*0.05, bh=4+rnd(idx*7+k)*5;
+      const p=[[ -bs,-bs],[bs,-bs],[bs,bs],[-bs,bs] ];
+      const Tq=p.map(([dx,dy])=>proj(a.gx+ox+dx,a.gy+oy+dy,top.z1+3+bh));
+      const Bq=p.map(([dx,dy])=>proj(a.gx+ox+dx,a.gy+oy+dy,top.z1+3));
+      poly(c,[Tq[1],Tq[2],Bq[2],Bq[1]],shade(col,1.15));
+      poly(c,[Tq[3],Tq[2],Bq[2],Bq[3]],shade(col,.75));
+      poly(c,Tq,shade(col,1.7));
+    }
+  }
+
+  // spire, on a monument only
+  if(a.tier>=5 && !HIVE){
+    const b=proj(a.gx,a.gy,top.z1+3), tp=proj(a.gx,a.gy,top.z1+30);
+    c.beginPath();c.moveTo(b.X,b.Y);c.lineTo(tp.X,tp.Y);
+    c.strokeStyle=shade(col,2.2);c.lineWidth=1.6;c.stroke();
+    const pu=reduced?.6:.5+.5*Math.sin(t/700+idx);
+    c.beginPath();c.arc(tp.X,tp.Y,2+pu*1.2,0,7);
+    c.fillStyle=`rgba(255,214,150,${.55+pu*.45})`;c.fill();
+  }
+
+  if(a.state==='misconfigured'){   // deployed, wired up, physically unable to run
+    const p=proj(a.gx,a.gy,top.z1+11), r=8;
+    c.save(); c.translate(p.X,p.Y);
+    c.beginPath(); c.arc(0,0,r,0,7);
+    c.strokeStyle='#ff6b5eaa'; c.lineWidth=1.6; c.stroke();
+    c.beginPath(); c.moveTo(-r*.7,-r*.7); c.lineTo(r*.7,r*.7);
+    c.strokeStyle='#ff6b5eaa'; c.lineWidth=1.6; c.stroke();
+    c.restore();
+  }
+  // new in agents.toml since the last scan: a "new" tag
+  if(!picking && isNew(a)){
+    const p=proj(a.gx,a.gy,top.z1+(a.host==='cloud'?26:12));
+    onScreen(p.X,p.Y,(x,y)=>{
+      c.font='700 10px '+FONT(); c.textAlign='center';
+      const w=c.measureText('NEW').width+12;
+      c.beginPath(); c.roundRect(x-w/2,y-16,w,15,7);
+      c.fillStyle='rgba(255,154,92,.92)'; c.fill();
+      c.fillStyle='#1a1208'; c.fillText('NEW',x,y-5);
+    });
+  }
+  if(a.host==='cloud'){
+    const p=proj(a.gx,a.gy,top.z1+(a.tier>=5?34:8)), pu=reduced?.5:.5+.5*Math.sin(t/420+idx);
+    c.beginPath();c.arc(p.X,p.Y,2.6+pu*1.6,0,7);
+    c.fillStyle=`rgba(111,182,255,${.5+pu*.5})`;c.fill();
+    c.beginPath();c.arc(p.X,p.Y,8+pu*5,0,7);
+    c.strokeStyle=`rgba(111,182,255,${.18*(1-pu)})`;c.lineWidth=1.4;c.stroke();
+  }
+  // plumbed into the brain: an intake grate in front of the building, and an
+  // outflow beside it. A building with neither reads and writes nothing shared.
+  const pl=a.plumbing;
+  if(pl && (pl.reads||pl.writes)){
+    const gz=base+0.6;
+    const mark=(ox,oy,col,glow)=>{
+      const q=[[-0.13,0],[0,-0.13],[0.13,0],[0,0.13]]
+        .map(([dx,dy])=>proj(a.gx+ox+dx,a.gy+oy+dy,gz));
+      const ctr=proj(a.gx+ox,a.gy+oy,gz);
+      const g=c.createRadialGradient(ctr.X,ctr.Y,0,ctr.X,ctr.Y,11);
+      g.addColorStop(0,glow); g.addColorStop(1,'rgba(0,0,0,0)');
+      c.fillStyle=g; c.beginPath(); c.arc(ctr.X,ctr.Y,11,0,7); c.fill();
+      poly(c,q,col);
+    };
+    if(pl.writes) mark( 0.62, 0.62,'rgba(196,167,255,.95)','rgba(196,167,255,.3)');
+  }
+
+  if(a.state==='failing'){
+    const p=proj(a.gx,a.gy,top.z1);
+    // a hot core at the roofline, so a failing building reads even when still
+    const gl=c.createRadialGradient(p.X,p.Y-6,0,p.X,p.Y-6,20);
+    gl.addColorStop(0,'rgba(255,150,90,.75)');
+    gl.addColorStop(.45,'rgba(255,107,94,.32)');
+    gl.addColorStop(1,'rgba(255,107,94,0)');
+    c.fillStyle=gl; c.beginPath(); c.arc(p.X,p.Y-6,20,0,7); c.fill();
+
+    const N=9, RISE=78;
+    for(let k=0;k<N;k++){
+      // frozen mid-rise when the viewer asked for no motion
+      const life=reduced ? (k+1)/(N+1) : ((t/17+k*31)%210)/210;
+      const drift=Math.sin(life*3.4+k*1.7+idx)*15*life;
+      const rad=4.5+life*15;
+      const fade=Math.pow(1-life,1.35);
+      const x=p.X+drift, y=p.Y-10-life*RISE;
+      const g=c.createRadialGradient(x,y,0,x,y,rad);
+      g.addColorStop(0,`rgba(255,${120-40*life|0},${95-30*life|0},${.5*fade})`);
+      g.addColorStop(.6,`rgba(210,90,88,${.3*fade})`);
+      g.addColorStop(1,'rgba(150,80,90,0)');
+      c.fillStyle=g; c.beginPath(); c.arc(x,y,rad,0,7); c.fill();
+    }
+  }
+  if(dim) c.restore();
+}
+
+/* The Yards: started-but-not-running work, read from your project folders and
+   plans as well as open terminals, so closing a terminal loses nothing. One plot per project.
+   Planned work is staked-out ground, started work has footings and part-walls,
+   stalled work is the same gone dark, and a plot with a live terminal on it
+   gets the crane. */
+const STREET_TINT={finish:'rgba(111,182,255,.05)',decide:'rgba(255,183,77,.045)',let_go:'rgba(255,107,94,.06)'};
+const STREET_EDGE={finish:'#6fb6ff',decide:'#ffb74d',let_go:'#ff6b5e'};
+const STREET_NAME={finish:'finish',decide:'decide',let_go:'let go'};
+const SITE_STYLE={
+  open:    {ground:'#2b2a1d', edge:'#ffc97a', wall:'#4a4029', lit:true},
+  started: {ground:'#1e2530', edge:'#6fb6ff', wall:'#2b3646', lit:false},
+  stalled: {ground:'#191c24', edge:'#5a6275', wall:'#232833', lit:false},
+  planned: {ground:'#222836', edge:'#59647d', wall:null,      lit:false},
+};
+
+/* ── the working Yards: scaffolding, a crew, and a tower crane per active plot ── */
+const CRANES=[];
+const HAT='#ffd23f', VEST='#ff8a3d', SKIN='#d9b38c', STEEL='#9aa6bb';
+// a scaffold frame hugging the two visible wall faces: poles, ledgers, a plank deck
+function drawScaffold(r,sw,h,busy,z0){
+  z0=z0||0.6;
+  const o=sw+0.07, lv=Math.max(2,Math.round((h-z0)/9));
+  const col=busy?'rgba(255,201,122,.55)':'rgba(170,182,204,.42)';
+  ctx.strokeStyle=col; ctx.lineWidth=.9;
+  const faces=[[[o,-o],[o,o]],[[o,o],[-o,o]]];        // east face, south face
+  faces.forEach(([a,b])=>{
+    for(let k=0;k<=3;k++){                               // poles
+      const u=k/3, x=r.gx+a[0]+(b[0]-a[0])*u, y=r.gy+a[1]+(b[1]-a[1])*u;
+      const p0=proj(x,y,z0), p1=proj(x,y,h+3);
+      ctx.beginPath(); ctx.moveTo(p0.X,p0.Y); ctx.lineTo(p1.X,p1.Y); ctx.stroke();
+    }
+    for(let l=1;l<=lv;l++){                              // ledgers
+      const z=z0+(h+3-z0)*l/lv, p=proj(r.gx+a[0],r.gy+a[1],z), q=proj(r.gx+b[0],r.gy+b[1],z);
+      ctx.beginPath(); ctx.moveTo(p.X,p.Y); ctx.lineTo(q.X,q.Y); ctx.stroke();
+    }
+    const d0=proj(r.gx+a[0],r.gy+a[1],z0), d1=proj(r.gx+b[0],r.gy+b[1],h+3);   // one brace
+    ctx.beginPath(); ctx.moveTo(d0.X,d0.Y); ctx.lineTo(d1.X,d1.Y); ctx.stroke();
+  });
+}
+// one worker, screen-scaled like the couriers. pose: walk | hammer | carry
+function drawWorker(p,ph,pose,face){
+  const ws=walkerScale()*.82;
+  ctx.save(); ctx.translate(p.X,p.Y); ctx.scale(ws*face,ws);
+  ctx.beginPath(); ctx.ellipse(0,0,3.6,1.5,0,0,7); ctx.fillStyle='rgba(0,0,0,.4)'; ctx.fill();
+  const step=pose==='hammer'?0:ph*1.6;
+  ctx.strokeStyle='#3a4256'; ctx.lineWidth=1.5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(0,-5); ctx.lineTo(-1.1+step,0); ctx.moveTo(0,-5); ctx.lineTo(1.1-step,0); ctx.stroke();
+  ctx.fillStyle=VEST; ctx.beginPath(); ctx.roundRect(-1.9,-10.8,3.8,6.2,1.4); ctx.fill();
+  ctx.fillStyle='#ffe9b0'; ctx.fillRect(-1.9,-8.4,3.8,.8);          // reflective stripe
+  ctx.fillStyle=SKIN; ctx.beginPath(); ctx.arc(0,-12.6,1.7,0,7); ctx.fill();
+  ctx.fillStyle=HAT; ctx.beginPath(); ctx.arc(0,-13.2,2.05,Math.PI,0); ctx.fill();
+  ctx.fillRect(-2.5,-13.3,5,.7);                                     // hat brim
+  ctx.strokeStyle=SKIN; ctx.lineWidth=1.2;
+  if(pose==='hammer'){
+    const sw=reduced?.4:Math.max(0,Math.sin(ph*2.2));               // raise, strike
+    const hx=2+Math.cos(-1.9+sw*1.7)*3.6, hy=-9+Math.sin(-1.9+sw*1.7)*3.6;
+    ctx.beginPath(); ctx.moveTo(.8,-9.5); ctx.lineTo(hx,hy); ctx.stroke();
+    ctx.strokeStyle='#8a6a3c'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(hx,hy); ctx.lineTo(hx+1.4,hy-1.6); ctx.stroke();
+    ctx.fillStyle='#c9ced8'; ctx.fillRect(hx+.6,hy-2.6,2.2,1.4);
+    if(!reduced && sw<.08){                                          // spark on the strike
+      ctx.fillStyle='rgba(255,220,140,.95)';
+      for(let k=0;k<3;k++){ ctx.beginPath(); ctx.arc(hx+3+k*1.2,hy+.5-k,.55,0,7); ctx.fill(); }
+    }
+  }else if(pose==='carry'){                                          // a plank on the shoulder
+    ctx.beginPath(); ctx.moveTo(.6,-9.6); ctx.lineTo(1.6,-11.2); ctx.stroke();
+    ctx.fillStyle='#b08a50'; ctx.save(); ctx.translate(0,-11.8); ctx.rotate(-.18);
+    ctx.fillRect(-5.5,-.7,11,1.5); ctx.restore();
+  }else{
+    ctx.beginPath(); ctx.moveTo(0,-9.5); ctx.lineTo(-1+step*.8,-6.3); ctx.moveTo(0,-9.5); ctx.lineTo(1-step*.8,-6.3); ctx.stroke();
+  }
+  ctx.restore();
+}
+// the crew: one hammering on the wall top, the rest walking the site perimeter
+function drawCrew(r,i,sw,h,busy){
+  const n=busy?4:((r.idle_days||99)<3?3:2), loop=sw+0.2;
+  for(let k=0;k<n;k++){
+    const seed=i*7.3+k*2.1, ph=reduced?0:Math.sin(t/(k?350:275)+seed);
+    if(k===0){                                                       // on the wall, hammering
+      const u=.25+.5*((seed*.37)%1), x=r.gx+sw, y=r.gy-sw+2*sw*u;
+      drawWorker(proj(x,y,h+0.6),reduced?0:t/425+seed,'hammer',1);
+      continue;
+    }
+    // walk a lap of the plot; speed and start differ per worker so they never march in step
+    const per=8*loop, sp=busy?.000168:.00012, d=((reduced?.3*k:(t*sp*(1+k*.17)))+seed)%1*per;
+    const legs=[[-loop,-loop,1,0],[loop,-loop,0,1],[loop,loop,-1,0],[-loop,loop,0,-1]];
+    const leg=Math.min(3,Math.floor(d/(2*loop))), [x0,y0,dx,dy]=legs[leg], s=d-leg*2*loop;
+    const x=r.gx+x0+dx*s, y=r.gy+y0+dy*s;
+    const sx=proj(dx,dy,0).X-proj(0,0,0).X;                          // screen direction for facing
+    drawWorker(proj(x,y,0.6),ph,k===2?'carry':'walk',sx>=0?1:-1);
+  }
+}
+// a tower crane: lattice mast, slewing jib, a trolley that runs out and back, a hook
+// lifting a steel beam from the ground to the wall top. Amber and lit when a terminal is
+// open on the plot right now; working-yellow when the code is simply moving.
+function drawCrane({r,i,h,busy}){
+  const mx=r.gx+0.62, my=r.gy-0.62, M=h+40, L=1.35;
+  const col=busy?'#ffc97a':'#d8b25a', dark=busy?'#a8823f':'#8f7638';
+  const sp=busy?.7:.45, T=reduced?0:t*sp;
+  // slew between a pickup and a drop side, pausing at each end like a real operator
+  const sw=Math.sin(T/3100+i*1.9), ease=Math.sign(sw)*Math.pow(Math.abs(sw),.55);
+  const ang=-2.35+i*.9+ease*1.05, ca=Math.cos(ang), sa=Math.sin(ang);
+  const base0=proj(mx,my,0.6), top=proj(mx,my,M), apex=proj(mx,my,M+9);
+  // mast: two rails and a zigzag lattice
+  const off=.055, r1=[proj(mx-off,my+off,0.6),proj(mx-off,my+off,M)], r2=[proj(mx+off,my-off,0.6),proj(mx+off,my-off,M)];
+  ctx.strokeStyle=col; ctx.lineWidth=1.2; ctx.lineCap='butt';
+  ctx.beginPath(); ctx.moveTo(r1[0].X,r1[0].Y); ctx.lineTo(r1[1].X,r1[1].Y);
+  ctx.moveTo(r2[0].X,r2[0].Y); ctx.lineTo(r2[1].X,r2[1].Y); ctx.stroke();
+  ctx.lineWidth=.6; ctx.beginPath();
+  const segs=Math.max(4,Math.round(M/7));
+  for(let k=0;k<segs;k++){
+    const a=lerp(r1[0],r1[1],k/segs), b=lerp(r2[0],r2[1],(k+.5)/segs), c2=lerp(r1[0],r1[1],(k+1)/segs);
+    ctx.moveTo(a.X,a.Y); ctx.lineTo(b.X,b.Y); ctx.lineTo(c2.X,c2.Y);
+  }
+  ctx.stroke();
+  // footing block
+  poly(ctx,[proj(mx-.12,my-.12,0.6),proj(mx+.12,my-.12,0.6),proj(mx+.12,my+.12,0.6),proj(mx-.12,my+.12,0.6)],'#3a3f4c');
+  // jib + counter-jib
+  const tip=proj(mx+ca*L,my+sa*L,M), back=proj(mx-ca*L*.38,my-sa*L*.38,M);
+  const tipLow=proj(mx+ca*L,my+sa*L,M-3);
+  ctx.strokeStyle=col; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(back.X,back.Y); ctx.lineTo(tip.X,tip.Y); ctx.stroke();
+  ctx.lineWidth=.7; ctx.beginPath(); ctx.moveTo(top.X,top.Y-3); ctx.lineTo(tipLow.X,tipLow.Y-3+3); ctx.stroke();
+  // pendant lines from the apex
+  ctx.strokeStyle=busy?'rgba(255,201,122,.6)':'rgba(216,178,90,.5)'; ctx.lineWidth=.6;
+  ctx.beginPath(); ctx.moveTo(apex.X,apex.Y); ctx.lineTo(lerp(top,tip,.7).X,lerp(top,tip,.7).Y);
+  ctx.moveTo(apex.X,apex.Y); ctx.lineTo(back.X,back.Y); ctx.stroke();
+  ctx.strokeStyle=col; ctx.lineWidth=1.1; ctx.beginPath(); ctx.moveTo(top.X,top.Y); ctx.lineTo(apex.X,apex.Y); ctx.stroke();
+  // counterweight and operator cab
+  const cw=proj(mx-ca*L*.33,my-sa*L*.33,M);
+  ctx.fillStyle='#5c6478'; ctx.fillRect(cw.X-2.6,cw.Y,5.2,4.2);
+  ctx.fillStyle=dark; ctx.fillRect(top.X-2.4,top.Y+1,4.8,4);
+  ctx.fillStyle=busy?'rgba(255,240,200,.95)':'rgba(255,232,180,.55)'; ctx.fillRect(top.X-1.6,top.Y+1.8,3.2,1.6);
+  // trolley runs out and back; the hook lifts while it is out, lowers on the way back
+  const run=reduced?.6:.5+.5*Math.sin(T/2300+i*1.3);
+  const u=.28+.62*run, trolley=lerp(top,tip,u);
+  const hookZ=0.6+ (M-8-0.6)*(reduced?.55:.5+.5*Math.sin(T/2300+i*1.3-.9));
+  const hk=proj(mx+ca*L*u,my+sa*L*u,hookZ);
+  ctx.fillStyle=dark; ctx.fillRect(trolley.X-1.6,trolley.Y-.2,3.2,1.8);
+  ctx.strokeStyle='rgba(205,212,226,.75)'; ctx.lineWidth=.55;
+  ctx.beginPath(); ctx.moveTo(trolley.X-.7,trolley.Y+1.4); ctx.lineTo(hk.X-.5,hk.Y);
+  ctx.moveTo(trolley.X+.7,trolley.Y+1.4); ctx.lineTo(hk.X+.5,hk.Y); ctx.stroke();
+  ctx.fillStyle='#e0b340'; ctx.beginPath(); ctx.arc(hk.X,hk.Y+1,1.1,0,7); ctx.fill();
+  // the load: a steel beam on two slings, swinging slightly
+  const swingL=reduced?0:Math.sin(T/700+i)*1.2;
+  ctx.strokeStyle='rgba(205,212,226,.6)'; ctx.lineWidth=.5;
+  ctx.beginPath(); ctx.moveTo(hk.X,hk.Y+2); ctx.lineTo(hk.X-4+swingL,hk.Y+5.5);
+  ctx.moveTo(hk.X,hk.Y+2); ctx.lineTo(hk.X+4+swingL,hk.Y+5.5); ctx.stroke();
+  ctx.fillStyle=STEEL; ctx.fillRect(hk.X-5.5+swingL,hk.Y+5.5,11,1.8);
+  ctx.fillStyle='#6b7488'; ctx.fillRect(hk.X-5.5+swingL,hk.Y+7.3,11,.6);
+  // aircraft-warning light at the jib tip; a slow amber beacon on the cab when someone is on it
+  const blink=reduced?1:((t/900+i*.37)%1<.18?1:.25);
+  ctx.beginPath(); ctx.arc(tip.X,tip.Y,1.4,0,7); ctx.fillStyle=`rgba(255,90,80,${blink})`; ctx.fill();
+  if(busy){
+    const pu=reduced?.6:.5+.5*Math.sin(t/520+i);
+    ctx.beginPath(); ctx.arc(apex.X,apex.Y,1.9+pu,0,7);
+    ctx.fillStyle=`rgba(255,201,122,${.6+pu*.4})`; ctx.fill();
+  }
+}
+
+function drawSites(){
+  if(!SBLOCK) return;
+  const B=SBLOCK;
+  const plot=[[B.x,B.y],[B.x+B.w,B.y],[B.x+B.w,B.y+B.h],[B.x,B.y+B.h]]
+    .map(([x,y])=>proj(x,y,0));
+  poly(ctx,plot,'rgba(22,20,16,.82)');
+  poly(ctx,plot,null,'rgba(120,104,70,.38)',1.3);
+  const font=getComputedStyle(document.body).fontFamily;
+
+  // Three streets. The ground answers the only question the Yards exist for:
+  // finish it, decide about it, or let it go. Sorted at scan time, not here.
+  (B.streets||[]).forEach(sd=>{
+    const y1=sd.y+sd.rows*2;
+    const c=[[B.x,sd.y],[B.x+B.w,sd.y],[B.x+B.w,y1],[B.x,y1]].map(([x,y])=>proj(x,y,0));
+    poly(ctx,c,STREET_TINT[sd.key]);
+    poly(ctx,c,null,STREET_EDGE[sd.key]+'2e',1);
+    // the street sign hangs off the west corner of its band
+    const l=proj(B.x-0.15,y1-0.15,0);
+    onScreen(l.X,l.Y,(x,y)=>{
+      ctx.font='600 12px '+font; ctx.textAlign='right';
+      try{ctx.letterSpacing='1.6px';}catch(e){}
+      const txt=sd.label.toUpperCase()+' \u00b7 '+sd.count, w=ctx.measureText(txt).width+22;
+      ctx.beginPath(); ctx.roundRect(x-w-6,y-22,w,24,12);
+      ctx.fillStyle='rgba(10,12,18,.9)'; ctx.fill();
+      ctx.strokeStyle=STREET_EDGE[sd.key]+'88'; ctx.lineWidth=1; ctx.stroke();
+      ctx.fillStyle=STREET_EDGE[sd.key]; ctx.fillText(txt,x-17,y-5.5);
+    });
+    if(!sd.count){
+      const m=proj(B.x+B.w/2,sd.y+sd.rows,0);
+      onScreen(m.X,m.Y,(x,y)=>{
+        ctx.font='12px '+font; ctx.textAlign='center'; ctx.fillStyle='rgba(150,134,100,.8)';
+        ctx.fillText('nothing here',x,y+4);
+      });
+    }
+  });
+
+  SITES.forEach((r,i)=>{
+    if(r._dim) return;
+    const st=SITE_STYLE[r.state]||SITE_STYLE.planned, s0=0.62;
+    const [A,Bc,C,D]=corners(r,s0,0.4);
+    poly(ctx,[A,Bc,C,D],st.ground);
+    poly(ctx,[A,Bc,C,D],null,(r.street==='let_go'?STREET_EDGE.let_go:st.edge)+'66',1.1);
+
+    // the name on the plot. A plan-only plot is a whisper; one with code or
+    // money behind it is legible from further out
+    // names only once you are close enough to read them; hover names any plot
+    const substantial=(r.code_files||0)>=5 || (r.cost_usd||0)>=20 || r.state==='open';
+    if(cam.s>=(substantial?1.0:1.45)){
+      const lp=proj(r.gx+s0,r.gy+s0,0);
+      onScreen(lp.X,lp.Y,(x,y)=>{
+        ctx.font=(substantial?'600 ':'')+'11px '+font; ctx.textAlign='center';
+        ctx.fillStyle=r.street==='let_go' ? 'rgba(255,157,148,.9)'
+                     : substantial ? 'rgba(214,220,232,.95)' : 'rgba(150,160,180,.85)';
+        let name=r.name; if(name.length>20) name=name.slice(0,19)+'\u2026';
+        ctx.fillText(name,x,y+13);
+      });
+    }
+
+    // sunk cost, stacked on the plot as pallets: one per $25, so the most
+    // expensive plans are the ones you can see from across the room
+    const pallets=Math.min(8,Math.ceil((r.cost_usd||0)/25));
+    for(let k=0;k<pallets;k++){
+      const col=k%2, lvl=Math.floor(k/2);
+      const cx=r.gx-0.36+col*0.2, cy=r.gy-0.36, hs=0.085, z0=0.6+lvl*4.2, z1=z0+4;
+      const T=[[cx-hs,cy-hs],[cx+hs,cy-hs],[cx+hs,cy+hs],[cx-hs,cy+hs]];
+      const top=T.map(([x,y])=>proj(x,y,z1)), bot=T.map(([x,y])=>proj(x,y,z0));
+      poly(ctx,[top[1],top[2],bot[2],bot[1]],'#6e5530');
+      poly(ctx,[top[3],top[2],bot[2],bot[3]],'#4f3c22');
+      poly(ctx,[top[0],top[1],top[2],top[3]],'#a8823f');
+    }
+
+    if(r.state==='planned'){
+      // a poured foundation and surveyor stakes: ground marked out, nothing standing
+      { const q=corners(r,.46,2.2), q0=corners(r,.46,0.4);
+        poly(ctx,[q[1],q[2],q0[2],q0[1]],'#3a3f4c'); poly(ctx,[q[3],q[2],q0[2],q0[3]],'#2c303b');
+        poly(ctx,q,'#4a5060'); }
+      [[-s0,-s0],[s0,-s0],[s0,s0],[-s0,s0]].forEach(([dx,dy])=>{
+        const a=proj(r.gx+dx,r.gy+dy,0.4), b=proj(r.gx+dx,r.gy+dy,9);
+        ctx.beginPath();ctx.moveTo(a.X,a.Y);ctx.lineTo(b.X,b.Y);
+        ctx.strokeStyle='#8a94ab';ctx.lineWidth=1.3;ctx.stroke();
+        ctx.beginPath();ctx.arc(b.X,b.Y,1.4,0,7);
+        ctx.fillStyle='#b9c2d4';ctx.fill();
+      });
+      // the plan board: something was decided here, nothing was built
+      const bp=proj(r.gx,r.gy+s0*.55,11), bb=proj(r.gx,r.gy+s0*.55,3);
+      ctx.beginPath();ctx.moveTo(bb.X,bb.Y);ctx.lineTo(bp.X,bp.Y);
+      ctx.strokeStyle='#6b7488';ctx.lineWidth=1.2;ctx.stroke();
+      ctx.fillStyle='rgba(150,162,184,.55)';
+      ctx.fillRect(bp.X-5,bp.Y-4,10,6);
+      return;
+    }
+
+    // A building under construction, built as far as its measured progress
+    // (projects.py progress_of: checklist ratio, else stage). Target height from its
+    // scale; finished floors (facade + windows) up to progress x target, bare steel
+    // above, scaffolding on the open part. Stalled: same building, dark, tarped.
+    const sw=0.46, H=24+Math.min(44,Math.sqrt((r.code_files||1)+1)*5);
+    const prog=Math.max(.05,Math.min(1,r.progress==null?.2:r.progress));
+    const zb=0.6+(H-0.6)*prog, stalled=r.state==='stalled';
+    const wall=stalled?'#262a34':st.wall, fl=9;
+    {
+      const [wA,wB,wC,wD]=corners(r,sw,zb), [,wB0,wC0,wD0]=corners(r,sw,0.6);
+      poly(ctx,[wB,wC,wC0,wB0],wall);
+      poly(ctx,[wD,wC,wC0,wD0],shade(wall,.72));
+      // windows on the finished floors: lit when someone is on it now
+      const floors=Math.max(1,Math.floor((zb-0.6)/fl));
+      for(let f=0;f<floors;f++){
+        const z=0.6+f*fl+3;
+        [[[sw,-sw],[sw,sw]],[[sw,sw],[-sw,sw]]].forEach(([a,b],face)=>{
+          for(let w=0;w<3;w++){
+            const u=(w+.5)/3, x=r.gx+a[0]+(b[0]-a[0])*u, y=r.gy+a[1]+(b[1]-a[1])*u;
+            const p=proj(x,y,z), lit=!stalled && (st.lit || rnd(i*31+f*7+w+face*3)<.35);
+            ctx.fillStyle=lit?'rgba(255,224,160,.85)':(stalled?'rgba(40,44,54,.9)':'rgba(70,84,108,.9)');
+            ctx.fillRect(p.X-2,p.Y-4,4,4.5);
+          }
+        });
+      }
+      poly(ctx,[wA,wB,wC,wD],stalled?'#30343f':shade(wall,1.15));   // slab at the build line
+      poly(ctx,[wA,wB,wC,wD],null,st.edge+'88',1);
+      if(stalled){                                        // a tarp over the slab
+        ctx.beginPath();ctx.moveTo(wA.X,wA.Y);ctx.lineTo(wC.X,wC.Y);ctx.moveTo(wB.X,wB.Y);ctx.lineTo(wD.X,wD.Y);
+        ctx.strokeStyle='rgba(90,98,117,.8)';ctx.lineWidth=1.4;ctx.stroke();
+      }
+    }
+    if(zb<H-1){                                           // bare steel frame above
+      ctx.strokeStyle=stalled?'rgba(90,98,117,.55)':'rgba(154,166,187,.85)'; ctx.lineWidth=1.1;
+      [[-sw,-sw],[sw,-sw],[sw,sw],[-sw,sw]].forEach(([dx,dy])=>{
+        const a=proj(r.gx+dx,r.gy+dy,zb), b=proj(r.gx+dx,r.gy+dy,H);
+        ctx.beginPath(); ctx.moveTo(a.X,a.Y); ctx.lineTo(b.X,b.Y); ctx.stroke();
+      });
+      for(let z=zb+fl;z<=H+.1;z+=fl){
+        const q=corners(r,sw,Math.min(z,H)); ctx.beginPath(); ctx.moveTo(q[0].X,q[0].Y);
+        q.slice(1).forEach(p=>ctx.lineTo(p.X,p.Y)); ctx.closePath(); ctx.stroke();
+      }
+    }
+
+    // In progress = a terminal is open on it now, or its code moved in the last two
+    // weeks (the finish street). Those get scaffolding, a crew and a working crane;
+    // stalled and planned ground stays quiet, so activity means activity.
+    const busy=r.state==='open', active=busy || (r.state==='started' && r.street==='finish');
+    if(active){
+      drawScaffold(r,sw,H,busy,zb);
+      drawCrew(r,i,sw,zb,busy);
+      CRANES.push({r,i,h:H,busy});
+    }
+  });
+  // cranes last: they are the tallest thing in the Yards and should read over the plots
+  CRANES.sort((p,q)=>(p.r.gx+p.r.gy)-(q.r.gx+q.r.gy)).forEach(drawCrane);
+  CRANES.length=0;
+
+  const lab=proj(B.x+B.w/2,B.y+B.h+.5,0);
+  onScreen(lab.X,lab.Y,(x,y)=>{
+    ctx.font='600 12px '+font; ctx.textAlign='center';
+    try{ctx.letterSpacing='2px';}catch(e){}
+    const c=CITY.site_counts||{};
+    const txt='THE YARDS · '+(c.total||0)+' PROJECTS IN PROGRESS';
+    const w=ctx.measureText(txt).width+24;
+    ctx.beginPath();ctx.roundRect(x-w/2,y+6,w,24,12);
+    ctx.fillStyle='rgba(10,12,18,.88)';ctx.fill();
+    ctx.strokeStyle='rgba(150,130,90,.55)';ctx.lineWidth=1;ctx.stroke();
+    ctx.fillStyle='#c9b48a';ctx.fillText(txt,x,y+22.5);
+  });
+}
+
+/* Real dependency roads: A writes a file B reads. In most systems there are few,
+   and that sparseness is itself a finding. */
+function drawEdges(){
+  const byId={}; AGENTS.forEach((a,i)=>byId[a.id]=a);
+  const focus=new Set([AGENTS[hover],AGENTS[sel]].filter(Boolean).map(a=>a.id));
+  (CITY.edges||[]).forEach((e,k)=>{
+    const A=byId[e.from], B=byId[e.to]; if(!A||!B) return;
+    if(A._dim && B._dim) return;
+    if(!focus.has(e.from) && !focus.has(e.to)) return;   // only the pointed-at agent's roads
+    const p=proj(A.gx,A.gy,2), q=proj(B.gx,B.gy,2);
+    ctx.beginPath();ctx.moveTo(p.X,p.Y);ctx.lineTo(q.X,q.Y);
+    ctx.strokeStyle='rgba(55,202,55,.45)';ctx.lineWidth=2.4;ctx.stroke();
+    if(reduced) return;
+    for(let d=0;d<3;d++){
+      const u=((t/3400)+d*.33+k*.11)%1;
+      ctx.beginPath();
+      ctx.arc(p.X+(q.X-p.X)*u, p.Y+(q.Y-p.Y)*u, 1.9,0,7);
+      ctx.fillStyle='rgba(120,240,120,.75)';ctx.fill();
+    }
+  });
+}
+
+const order=()=>AGENTS.map((a,i)=>({a,i})).sort((p,q)=>(p.a.gx+p.a.gy)-(q.a.gx+q.a.gy));
+
+/* The watchdog, made visible. A searchlight on the watchdog's roof sweeps the city.
+   How far its beam reaches says how deeply the job is checked: the whole building
+   for a job checked on what it delivered, only the front door for a job checked
+   just for having run, nothing at all for a job nobody checks (agents.toml: watched). */
+let watchView=null;          // null | 'on'
+const ACTIVE=a=>a.state==='live'||a.state==='failing'||a.state==='misconfigured';
+const watchOf=a=>a.watch;
+function watchCounts(view){
+  const prev=watchView; watchView=view;
+  const c={output:0,runs:0,none:0,total:0};
+  AGENTS.forEach(a=>{ if(!ACTIVE(a)||isWD(a)) return; c[watchOf(a)||'none']++; c.total++; });
+  watchView=prev; return c;
+}
+function drawWatch(){
+  if(!watchView) return;
+  const wd=AGENTS.find(isWD); if(!wd) return;
+  const o=proj(wd.gx,wd.gy,lampZ(wd));         // the light comes from the lighthouse lamp
+  const sweep=reduced?null:(t/2400)%(Math.PI*2);
+  AGENTS.forEach(a=>{
+    if(a===wd||!ACTIVE(a)||a._dim||(tourFocus&&!tourFocus.has(a.id))) return;
+    const w=watchOf(a); if(w!=='output'&&w!=='runs') return;
+    const base=baseOf(a), top=base+heightOf(a);
+    const tgt=w==='output'?proj(a.gx,a.gy,top*.55+base*.45):proj(a.gx,a.gy,base+5);
+    const ang=Math.atan2(tgt.Y-o.Y,tgt.X-o.X);
+    const d=sweep===null?0:Math.abs(((ang-sweep+3*Math.PI)%(2*Math.PI))-Math.PI);
+    const k=.45+.55*Math.exp(-d*d/.05);
+    const zs=Math.max(1,1/(cam.s*1.25));   // marks keep a readable size when zoomed out
+    const col=w==='output'?'156,240,156':'143,196,255';
+    const dx=tgt.X-o.X, dy=tgt.Y-o.Y, L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L;
+    const half=w==='output'?Math.max(10,(top-base)*.45):8;
+    const g=ctx.createLinearGradient(o.X,o.Y,tgt.X,tgt.Y);
+    g.addColorStop(0,`rgba(${col},${.05*k})`); g.addColorStop(1,`rgba(${col},${.3*k})`);
+    ctx.beginPath(); ctx.moveTo(o.X,o.Y);
+    ctx.lineTo(tgt.X+nx*half,tgt.Y+ny*half); ctx.lineTo(tgt.X-nx*half,tgt.Y-ny*half);
+    ctx.closePath(); ctx.fillStyle=g; ctx.fill();
+    const s=.46;
+    if(w==='output' && HIVE){   // in the hive the gaze traces the pod itself
+      podPath(ctx,a,AGENTS.indexOf(a),base,top-base);
+      ctx.fillStyle=`rgba(${col},${.14*k})`; ctx.fill();
+      ctx.strokeStyle=`rgba(${col},${.55+.45*k})`; ctx.lineWidth=(1.3+k)*zs; ctx.stroke();
+    } else if(w==='output'){      // the whole building answers to the beam
+      const A=proj(a.gx-s,a.gy-s,top),B=proj(a.gx+s,a.gy-s,top),C=proj(a.gx+s,a.gy+s,top),
+            D=proj(a.gx-s,a.gy+s,top),B0=proj(a.gx+s,a.gy-s,base),C0=proj(a.gx+s,a.gy+s,base),
+            D0=proj(a.gx-s,a.gy+s,base);
+      const lw=(1.3+k)*zs;
+      poly(ctx,[A,B,C,D],`rgba(${col},${.12*k})`,`rgba(${col},${.5+.5*k})`,lw);
+      poly(ctx,[B,C,C0,B0],`rgba(${col},${.1*k})`,`rgba(${col},${.5+.5*k})`,lw);
+      poly(ctx,[D,C,C0,D0],`rgba(${col},${.08*k})`,`rgba(${col},${.5+.5*k})`,lw);
+    } else {               // only the door: it ran, and that is all anyone checks
+      const dp=proj(a.gx+s,a.gy+s,base);
+      ctx.beginPath(); ctx.ellipse(dp.X,dp.Y,12*zs,5*zs,0,0,7);
+      ctx.fillStyle=`rgba(${col},${.3*k})`; ctx.fill();
+      ctx.strokeStyle=`rgba(${col},${.7+.3*k})`; ctx.lineWidth=1.6*zs; ctx.stroke();
+    }
+  });
+  // the lamp, brighter while it is sweeping (in the hive the eye is its own light)
+  if(HIVE) return;
+  const pu=reduced?.6:.5+.5*Math.sin(t/300);
+  const lg=ctx.createRadialGradient(o.X,o.Y,0,o.X,o.Y,22);
+  lg.addColorStop(0,`rgba(255,244,210,${.75+.25*pu})`); lg.addColorStop(1,'rgba(255,244,210,0)');
+  ctx.fillStyle=lg; ctx.beginPath(); ctx.arc(o.X,o.Y,22,0,7); ctx.fill();
+  ctx.beginPath(); ctx.arc(o.X,o.Y,3.2,0,7); ctx.fillStyle='#fff6dc'; ctx.fill();
+}
+// with the watchdog layer on, a job nobody checks sits in the dark
+const watchDim=a=>watchView && ACTIVE(a) && !isWD(a) && (watchOf(a)||'none')==='none';
+
+/* Tour tags: a short label over chosen buildings, e.g. "exit 0 · still failing". */
+let tourTags=null, tourFocus=null;
+function drawTourTags(){
+  if(!tourTags) return;
+  AGENTS.forEach(a=>{
+    const txt=tourTags(a); if(!txt) return;
+    const p=proj(a.gx,a.gy,baseOf(a)+heightOf(a)+(a.state==='failing'?70:36));
+    onScreen(p.X,p.Y,(x,y)=>{
+      ctx.font='600 12.5px '+FONT(); ctx.textAlign='center';
+      const w=ctx.measureText(txt).width+18;
+      ctx.beginPath(); ctx.roundRect(x-w/2,y-18,w,24,6);
+      ctx.fillStyle='#1a0f10f0'; ctx.fill();
+      ctx.strokeStyle='#ff6b5eaa'; ctx.lineWidth=1.2; ctx.stroke();
+      ctx.fillStyle='#ffd2cb'; ctx.fillText(txt,x,y-1.5);
+    });
+  });
+}
+
+/* Couriers: people walking a dependency road, carrying the file one agent writes
+   to the agent that reads it. One road per writer→reader pair. How many walk it
+   is how recently the writer ran — 3 within the hour, 2 today, 1 this week, none
+   if it has gone quiet — so a busy pipeline looks busy and a dead one is empty.
+   The parcel is violet (writes shared files), or red if the writer is failing. */
+const ROADS=(()=>{
+  const m=new Map();
+  (CITY.edges||[]).forEach(e=>{
+    const k=e.from+'>'+e.to;
+    if(!m.has(k)) m.set(k,{from:e.from,to:e.to,files:[]});
+    m.get(k).files.push(e.path);
+  });
+  return [...m.values()];
+})();
+const walkersFor=a=>{ const h=a.hours_ago; if(h===null||h===undefined) return 0;
+                      return h<1?3 : h<24?2 : h<168?1 : 0; };
+let COURIERS=[];
+function couriers(){
+  const byId={}; AGENTS.forEach(a=>byId[a.id]=a);
+  const out=[];
+  ROADS.forEach((rd,k)=>{
+    const A=byId[rd.from], B=byId[rd.to]; if(!A||!B) return;
+    const n=walkersFor(A); if(!n || (A._dim && B._dim)) return;
+    const dx=B.gx-A.gx, dy=B.gy-A.gy, d=Math.hypot(dx,dy)||1, ed=0.6/d;
+    const sx=proj(B.gx,B.gy,0).X-proj(A.gx,A.gy,0).X;
+    const dur=d/0.5*1000;                       // half a tile a second: a stroll
+    for(let i=0;i<n;i++){
+      const u=reduced ? (i+1)/(n+1) : ((t/dur)+i/n+k*.137)%1;
+      const v=ed+u*(1-2*ed);                    // leave the doorstep, stop at the next
+      out.push({x:A.gx+dx*v, y:A.gy+dy*v, k, i, sx, rd,
+        alpha:Math.min(1,u/.07,(1-u)/.07),
+        fail:A.state==='failing'||A.state==='misconfigured', dim:A._dim||B._dim});
+    }
+  });
+  return out;
+}
+// never smaller than ~14px on screen; zoomed in, back to true scale beside the towers
+const walkerScale=()=>Math.max(1,14/(15.3*cam.s));
+function drawCourier(c){
+  const p=proj(c.x,c.y,0), ph=reduced?0:Math.sin(t/120+c.k*3+c.i*2), ws=walkerScale();
+  ctx.save(); ctx.globalAlpha=c.alpha*(c.dim?.15:1); ctx.translate(p.X,p.Y); ctx.scale(ws,ws);
+  if(HIVE){                                      // a crawling drone with its parcel on its back
+    const side=c.sx>=0?1:-1;
+    ctx.strokeStyle='#2a0f25'; ctx.lineWidth=1.1;
+    for(let k=-1;k<=1;k++){ const o=k*2.2, lg=ph*(k%2?1:-1)*1.4;
+      ctx.beginPath(); ctx.moveTo(o,-3); ctx.lineTo(o-2+lg,0); ctx.moveTo(o,-3); ctx.lineTo(o+2-lg,0); ctx.stroke(); }
+    ctx.beginPath(); ctx.ellipse(0,-4.5,5,3.2,0,0,7); ctx.fillStyle='#5a2450'; ctx.fill();
+    ctx.beginPath(); ctx.arc(side*5,-5,2,0,7); ctx.fillStyle='#7a3468'; ctx.fill();
+    ctx.fillStyle=c.fail?'#ff6b5e':'#c4a7ff'; ctx.fillRect(-2.2,-10.5,4.4,4.4);
+    ctx.restore(); return;
+  }
+  ctx.beginPath(); ctx.ellipse(0,0,4,1.7,0,0,7); ctx.fillStyle='rgba(0,0,0,.4)'; ctx.fill();
+  ctx.strokeStyle='#c9d1df'; ctx.lineWidth=1.5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(0,-5); ctx.lineTo(-1.1+ph*1.7,0);
+  ctx.moveTo(0,-5); ctx.lineTo(1.1-ph*1.7,0); ctx.stroke();
+  ctx.fillStyle='#e4e9f2';
+  ctx.beginPath(); ctx.roundRect(-1.9,-11,3.8,6.5,1.6); ctx.fill();
+  ctx.beginPath(); ctx.arc(0,-13.3,2,0,7); ctx.fill();
+  const side=c.sx>=0?1:-1, bob=reduced?0:Math.abs(ph)*.5;
+  ctx.fillStyle=c.fail?'#ff6b5e':'#c4a7ff';
+  ctx.fillRect(side>0?1.3:-5.7,-10.5+bob,4.4,4.4);
+  ctx.restore();
+}
+// a courier is hit-tested on screen, near its body
+function pickCourier(mx,my){
+  for(const c of COURIERS){
+    const ws=walkerScale(), p=proj(c.x,c.y,0), x=p.X*cam.s+cam.x, y=(p.Y-7*ws)*cam.s+cam.y;
+    if(Math.abs(mx-x)<5*ws*cam.s+3 && Math.abs(my-y)<8.5*ws*cam.s+2) return c;
+  }
+  return null;
+}
+
+let fitS=1, userMoved=false;   // until you pan or zoom, a resize refits the view
+function draw(){
+  if(cv.clientWidth!==W || cv.clientHeight!==H) resize();
+  sky();
+  ctx.setTransform(DPR*cam.s,0,0,DPR*cam.s,DPR*cam.x,DPR*cam.y);
+  drawIsland();
+  if(mode==='yards'){ drawSites(); return; }
+  drawPiers();
+  drawGround(); drawRoads(); drawPierRoads(); drawCloudShadows(); drawEdges(); drawCables();
+  // buildings and couriers share one back-to-front pass, so a walker goes behind a tower
+  COURIERS=couriers();
+  AGENTS.map((a,i)=>({d:a.gx+a.gy, f:()=>drawBuilding(a,i,false)}))
+    .concat(COURIERS.map(c=>({d:c.x+c.y, f:()=>drawCourier(c)})))
+    .sort((p,q)=>p.d-q.d).forEach(o=>o.f());
+  drawWatch();
+  // district name plates are off: the map reads without them (a building's card still names it)
+  drawClouds();
+  drawTourTags();
+
+  [[sel,'#37ca37',2.2],[hover,'#ffffff',1.3]].forEach(([idx,col,lw])=>{
+    const a=AGENTS[idx]; if(!a) return;
+    const s=.44, base=baseOf(a), z1=base+heightOf(a);
+    const A=proj(a.gx-s,a.gy-s,z1),B=proj(a.gx+s,a.gy-s,z1),
+          C=proj(a.gx+s,a.gy+s,z1),D=proj(a.gx-s,a.gy+s,z1),
+          B0=proj(a.gx+s,a.gy-s,base),C0=proj(a.gx+s,a.gy+s,base),D0=proj(a.gx-s,a.gy+s,base);
+    poly(ctx,[A,B,C,D],null,col,lw);
+    poly(ctx,[B,C,C0,B0],null,col,lw);
+    poly(ctx,[D,C,C0,D0],null,col,lw);
+    if(idx===sel){
+      const l=proj(a.gx,a.gy,z1+26);
+      onScreen(l.X,l.Y,(x,y)=>{
+        ctx.font='600 13px '+FONT(); ctx.textAlign='center';
+        const w=ctx.measureText(a.name).width+20;
+        ctx.beginPath();ctx.roundRect(x-w/2,y-20,w,25,5);
+        ctx.fillStyle='#0c0f16ee';ctx.fill();
+        ctx.strokeStyle='#37ca3788';ctx.lineWidth=1;ctx.stroke();
+        ctx.fillStyle='#e8eaf0';ctx.fillText(a.name,x,y-3);
+      });
+    }
+  });
+
+  const flagged=new Set(CITY.findings.filter(f=>f.sev!=='info').map(f=>f.agent));
+  AGENTS.forEach((a,i)=>{
+    if(!flagged.has(a.id)) return;
+    const lift=(a.tier>=5?46:0)+(a.state==='failing'?54:34);
+    const p=proj(a.gx,a.gy,baseOf(a)+heightOf(a)+lift);
+    ctx.save();
+    ctx.translate(p.X,p.Y+(reduced?0:Math.sin(t/500+i)*2.5));
+    ctx.beginPath();ctx.moveTo(0,-8);ctx.lineTo(7,5);ctx.lineTo(-7,5);ctx.closePath();
+    ctx.fillStyle='rgba(255,183,77,.92)';ctx.fill();
+    ctx.fillStyle='#1a1408';
+    ctx.font='700 9px '+getComputedStyle(document.body).fontFamily;
+    ctx.textAlign='center';ctx.fillText('!',0,3.5);
+    ctx.restore();
+  });
+}
+function drawPick(){
+  pctx.setTransform(DPR,0,0,DPR,0,0);
+  pctx.fillStyle='#000';pctx.fillRect(0,0,W,H);
+  pctx.setTransform(DPR*cam.s,0,0,DPR*cam.s,DPR*cam.x,DPR*cam.y);
+  if(mode==='city') order().forEach(({a,i})=>drawBuilding(a,i,true));
+  // a crane's clickable area is its hut plus a column up the mast
+  if(mode==='yards') SITES.forEach((r,i)=>{
+    if(r._dim) return;
+    const pc='#'+(AGENTS.length+i+1).toString(16).padStart(6,'0');
+    const [A,B,C,D]=corners(r,.62,26), [,B0,C0,D0]=corners(r,.62,0);
+    poly(pctx,[B,C,C0,B0],pc); poly(pctx,[D,C,C0,D0],pc); poly(pctx,[A,B,C,D],pc);
+  });
+  pickDirty=false;
+}
+// clouds drift every frame, so they are hit-tested live rather than baked into
+// the pick canvas; they sit on top of everything, so they are asked first
+function pickCloud(mx,my){
+  const stores=BRAIN.stores||[];
+  for(let i=stores.length-1;i>=0;i--){
+    const st=stores[i], R=cloudR(st);
+    const c0=proj(st.gx,st.gy,CLOUD_Z), m=cloudMotion(st,i);
+    const sx=(c0.X+m.dx)*cam.s+cam.x, sy=(c0.Y+m.dy-R*0.15)*cam.s+cam.y;
+    const ex=(mx-sx)/(R*1.7*cam.s), ey=(my-sy)/(R*0.75*cam.s);
+    if(ex*ex+ey*ey<=1) return AGENTS.length+SITES.length+i;
+  }
+  return -1;
+}
+function pick(mx,my){
+  if(pickDirty) drawPick();
+  if(mx<0||my<0||mx>W||my>H) return -1;
+  const c=mode==='city'?pickCloud(mx,my):-1; if(c>=0) return c;
+  const d=pctx.getImageData(mx*DPR|0,my*DPR|0,1,1).data;
+  const id=(d[0]<<16)|(d[1]<<8)|d[2];
+  return (id>0 && id<=AGENTS.length+SITES.length+(BRAIN.stores||[]).length) ? id-1 : -1;
+}
+
+/* ---------------- interaction ---------------- */
+let dragging=false,moved=false,lx=0,ly=0;
+cv.addEventListener('pointerdown',e=>{
+  dragging=true;moved=false;lx=e.clientX;ly=e.clientY;
+  cv.classList.add('drag'); cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointerup',e=>{
+  dragging=false;cv.classList.remove('drag');
+  if(moved) return;
+  const r=cv.getBoundingClientRect();
+  select(pick(e.clientX-r.left,e.clientY-r.top));
+});
+cv.addEventListener('pointermove',e=>{
+  const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  if(dragging){
+    const dx=e.clientX-lx, dy=e.clientY-ly;
+    if(Math.abs(dx)+Math.abs(dy)>2) moved=true;
+    cam.x+=dx; cam.y+=dy; lx=e.clientX; ly=e.clientY; pickDirty=true; userMoved=true;
+    return;
+  }
+  // a walker is drawn over whatever is behind it, so it is asked first
+  const wk=mode==='city'?pickCourier(mx,my):null;
+  const pr=(!wk&&mode==='city')?pickPier(mx,my):null;
+  hoverPier=pr?pr.name:null;
+  const h=(wk||pr)?-1:pick(mx,my), tip=document.getElementById('tip');
+  hover=h;
+  hoverStore = (h>=AGENTS.length+SITES.length)
+    ? ((BRAIN.stores||[])[h-AGENTS.length-SITES.length]||{}).id : null;
+  if(h>=0){
+    let a, txt;
+    if(h<AGENTS.length){ a=AGENTS[h]; txt=a.name+'  ·  '+stateLine(a); }
+    else if(h<AGENTS.length+SITES.length){
+      a=SITES[h-AGENTS.length];
+      txt=a.name+'  ·  '+(STREET_NAME[a.street]||a.state)+'  ·  '+a.evidence;
+    } else {
+      a=(BRAIN.stores||[])[h-AGENTS.length-SITES.length];
+      const n=(BRAIN.links||[]).filter(l=>l.store===a.id).length;
+      txt=a.label+'  ·  '+a.files+' files  ·  '+(n?n+' agents read it':'nothing reads it');
+    }
+    tip.textContent = txt;
+    tip.style.left=mx+'px'; tip.style.top=my+'px'; tip.style.opacity=1;
+  } else {
+    const c=wk;
+    if(pr){
+      tip.textContent=`${PIER_NAME[pr.name]||pr.name}  ·  ${pr.n} automation${pr.n===1?'':'s'} talk to it directly`;
+      tip.style.left=mx+'px'; tip.style.top=my+'px'; tip.style.opacity=1;
+    } else if(c){
+      const f=c.rd.files;
+      tip.textContent=`carrying ${f[0]}${f.length>1?' +'+(f.length-1)+' more':''}  ·  `
+        +`${c.rd.from} \u2192 ${c.rd.to}${c.fail?'  ·  sender is failing':''}`;
+      tip.style.left=mx+'px'; tip.style.top=my+'px'; tip.style.opacity=1;
+    } else tip.style.opacity=0;
+  }
+});
+cv.addEventListener('pointerleave',()=>{hover=-1;hoverStore=null;hoverPier=null;document.getElementById('tip').style.opacity=0;});
+cv.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  const ns=Math.max(.3,Math.min(2.6,cam.s*Math.exp(-e.deltaY*.0016)));
+  cam.x=mx-(mx-cam.x)*(ns/cam.s); cam.y=my-(my-cam.y)*(ns/cam.s); cam.s=ns;
+  pickDirty=true; userMoved=true;
+},{passive:false});
+
+function flyTo(id){
+  let i=AGENTS.findIndex(a=>a.id===id), a, isTerm=false;
+  if(i<0){
+    const ti=SITES.findIndex(r=>String(r.id)===String(id));
+    if(ti<0) return;
+    i=AGENTS.length+ti; a=SITES[ti]; isTerm=true;
+  } else a=AGENTS[i];
+  // in the field there is no camera to fly — centre the graph on the node instead
+  if(!isTerm && document.body.classList.contains('fieldview')){ Field.focus(id); return; }
+  if(isTerm && mode!=='yards') setView('yards');
+  else if(!isTerm && mode!=='city') setView('city');
+  const p=proj(a.gx,a.gy, isTerm ? 20 : (baseOf(a)+heightOf(a))*.5);
+  userMoved=true;                        // a fly-to is a chosen view; keep it on resize
+  const ts=Math.max(cam.s,1.25), tx=W/2-p.X*ts, ty=H/2-p.Y*ts;
+  const s0=cam.s,x0=cam.x,y0=cam.y,t0=performance.now();
+  if(reduced){ cam.s=ts;cam.x=tx;cam.y=ty;pickDirty=true; }
+  else (function step(now){
+    const u=Math.min(1,(now-t0)/560), e=1-Math.pow(1-u,3);
+    cam.s=s0+(ts-s0)*e; cam.x=x0+(tx-x0)*e; cam.y=y0+(ty-y0)*e; pickDirty=true;
+    if(u<1) requestAnimationFrame(step);
+  })(performance.now());
+  select(i);
+  if(innerWidth<=1000) document.getElementById('stage').scrollIntoView({behavior:'smooth'});
+}
+
+/* ---------------- panels ---------------- */
+function ago(h){
+  if(h===null||h===undefined) return 'never';
+  if(h<1) return 'minutes ago';
+  if(h<24) return Math.round(h)+'h ago';
+  const d=Math.round(h/24);
+  if(d<14) return d+'d ago';
+  if(d<70) return Math.round(d/7)+' weeks ago';
+  return Math.round(d/30)+' months ago';
+}
+function idleText(h){
+  if(h==null) return 'unknown';
+  if(h<1) return 'just now';
+  if(h<24) return Math.round(h)+'h idle';
+  return Math.round(h/24)+'d idle';
+}
+const LABEL={live:'live', failing:'failing', misconfigured:'cannot fire',
+             scaffold:'never installed', ruin:'gone dark',
+             dormant:'dormant by design', manual:'run by hand', paused:'paused',
+             unknown:'unknown'};
+// How deeply the watchdog looks: not at all, at whether it ran, or at what it made.
+const WATCH_PILL={none:'not watched', runs:'watched: runs only', output:'watched: output'};
+function watchText(a){
+  if(a.watch==='output') return 'checks its output — reads what it made'
+    +(a.verified_on?` <span style="color:var(--faint)">(last checked ${esc(a.verified_on)})</span>`:'');
+  if(a.watch==='runs') return '<span style="color:var(--amber)">checks it runs</span>'
+    +' <span style="color:var(--faint)">— catches crashes and missed runs, not errors the job catches and keeps going</span>';
+  return '<span style="color:var(--amber)">not watched</span>'
+    +' <span style="color:var(--faint)">— nothing tells you if this stops</span>';
+}
+function stateLine(a){
+  // no recorded run time (always-on cloud services) means no "ran never" either
+  const known=a.hours_ago!==null&&a.hours_ago!==undefined;
+  if(a.state==='live') return known ? 'ran '+ago(a.hours_ago)
+                                    : (/always-on|resident/i.test(a.schedule||'') ? 'running' : 'live');
+  if(a.state==='ruin') return known ? 'dark since '+ago(a.hours_ago) : 'gone dark';
+  if(a.state==='paused'&&a.paused) return 'paused since '+a.paused.since;
+  return LABEL[a.state]||a.state;
+}
+
+function select(i){
+  sel=i;
+  document.body.classList.toggle('noinsp',i<0);
+  Field.mark(i);
+  const el=document.getElementById('panel'), sub=document.getElementById('isub');
+  // indices past the agents are cranes in the Yards, not buildings
+  selStore=null;
+  if(i>=AGENTS.length+SITES.length){
+    return selectStore(el,sub,(BRAIN.stores||[])[i-AGENTS.length-SITES.length]);
+  }
+  if(i>=AGENTS.length){ return selectSite(el,sub,SITES[i-AGENTS.length]); }
+  if(i<0){
+    sub.textContent='nothing selected';
+    el.innerHTML='<div class="empty">Click any building to open it.<br><br>'
+      +'<b>Height</b> is how much it does. <b>Lit windows</b> mean it ran recently. '
+      +'<b>Scaffolding</b> means it was built and never switched on. <b>Smoke</b> means '
+      +'it is failing right now. A building on a <b>blue plinth</b> (cloud) or a <b>teal plinth</b> '
+      +'(an always-on server) survives this machine being shut.</div>';
+    return;
+  }
+  const a=AGENTS[i], d=dmap[a.district]||{name:''};
+  sub.textContent=a.name;
+  const mine=CITY.findings.filter(f=>f.agent===a.id);
+  el.innerHTML=`
+    <h2 class="bname">${esc(a.name)}</h2>
+    <div class="bdist">${esc(d.name)}</div>
+    <div class="pills">
+      <span class="pill ${a.state}">${LABEL[a.state]||a.state}</span>
+      <span class="pill ${offMachine(a)?'cloud':''}">${a.host==='cloud'?'cloud':a.host==='server'?esc(a.where||'server'):'this machine'}</span>
+      <span class="pill">value tier ${a.value_tier} \u00b7 ${esc(a.tier_name)}</span>
+      ${['live','failing','misconfigured'].includes(a.state)
+         ? `<span class="pill ${a.watch==='output'?'':'scaffold'}">${WATCH_PILL[a.watch]||'unmonitored'}</span>` : ''}
+      <span class="pill">${a.floors} floors</span>
+      ${isNew(a)?'<span class="pill">new since the last scan</span>':''}
+    </div>
+    <p class="purpose">${esc(a.purpose)}</p>
+    ${mine.map(f=>`<div class="alert"><b>${esc(f.title)}</b><br>${esc(f.evidence)}</div>`).join('')}
+    <dl>
+      <dt>Schedule</dt><dd>${esc(a.schedule)}</dd>
+      <dt>Use</dt><dd>${a.use!=null?`<b>${a.use}</b> in 7 days <span style="color:var(--faint)">\u00b7 ${esc(a.use_how||'')}</span>`:'<span style="color:var(--faint)">'+esc(a.use_how||'not measured')+' \u2014 sized by value tier</span>'}</dd>
+      ${(a.feeds||[]).length?`<dt>Feeds</dt><dd>${a.feeds.map(x=>`<a href="#" class="goagent" data-a="${esc(x)}">${esc(x)}</a>`).join(', ')}</dd>`:''}
+      ${(a.fed_by||[]).length?`<dt>Fed by</dt><dd>${a.fed_by.map(x=>`<a href="#" class="goagent" data-a="${esc(x)}">${esc(x)}</a>`).join(', ')}</dd>`:''}
+      ${a.paused?`<dt>Paused</dt><dd>since ${esc(a.paused.since)} \u00b7 ${esc(a.paused.why)}<br><span style="color:var(--faint)">resume: <code>${esc(a.paused.resume)}</code></span></dd>`:''}
+      <dt>Last run</dt><dd>${a.hours_ago==null&&a.last_run_note?'<span style="color:var(--faint)">'+esc(a.last_run_note)+'</span>':ago(a.hours_ago)}${a.hours_ago!=null&&a.last_run_note?' <span style="color:var(--faint)">\u00b7 '+esc(a.last_run_note)+'</span>':''}${a.last_run_iso?' <span style="color:var(--faint)">'+a.last_run_iso.slice(0,16).replace('T',' ')+'Z</span>':''}</dd>
+      ${a.last_exit!==null&&a.last_exit!==undefined?`<dt>Last exit</dt><dd>${a.last_exit}</dd>`:''}
+      ${(a.sources||[]).length?`<dt>Talks to</dt><dd>${a.sources.map(n=>esc(PIER_NAME[n]||n)).join(', ')}</dd>`:''}
+      <dt>Brain</dt><dd>${(()=>{const p=a.plumbing||{};
+        if(!p.reads&&!p.writes) return '<span style="color:var(--amber)">reads and writes nothing shared</span>';
+        const bits=[];
+        if(p.reads) bits.push(`reads ${p.reads}`);
+        if(p.writes) bits.push(`writes ${p.writes}`);
+        return bits.join(' \u00b7 ')+((p.read_paths||[]).length
+          ? ` <span style="color:var(--faint)">(${p.read_paths.slice(0,2).map(esc).join(', ')})</span>`:'');
+      })()}</dd>
+      <dt>Watchdog</dt><dd>${watchText(a)}</dd>
+      ${(a.run_errors||[]).length?`<dt>Last result</dt><dd><span style="color:var(--amber)">ran, but logged ${a.run_errors.length===1?'an error':'errors'} that stopped its work</span><br><code>${a.run_errors.map(esc).join('<br>')}</code></dd>`:''}
+      <dt>Survives</dt><dd>${offMachine(a)?'this machine being shut'+(a.host==='server'?' (needs '+esc(a.where||'the server')+' on)':''):'nothing \u2014 needs this machine awake'}</dd>
+      ${a.log_path?`<dt>Log</dt><dd><code>${esc(a.log_path)}</code></dd>`:''}
+      ${a.schedule_source?`<dt>Defined in</dt><dd><code>${esc(a.schedule_source)}</code></dd>`:''}
+    </dl>
+    <div class="sect">Writes</div>
+    <ul class="writes">${a.writes.length?a.writes.map(w=>`<li>${esc(w)}</li>`).join(''):'<li style="color:var(--faint)">nothing declared</li>'}</ul>
+    ${(a.reads||[]).length?`<div class="sect">Reads</div>
+    <ul class="writes">${a.reads.map(w=>`<li>${esc(w)}</li>`).join('')}</ul>`:''}
+    ${a.log_tail?`<div class="sect">Tail of its log</div><pre class="tail">${esc(a.log_tail)}</pre>`:''}
+    <div class="sect">Ask about this building</div>
+    <div class="ask" id="ask"></div>`;
+  el.querySelectorAll('.goagent').forEach(x=>x.addEventListener('click',e=>{ e.preventDefault(); flyTo(x.dataset.a); }));
+  mountAsk(a);
+}
+function progressLine(r){
+  const bits=[];
+  if(r.phase==='built')
+    bits.push(`It got to working code \u2014 <b>${r.files_built}</b> file${
+      r.files_built===1?'':'s'} written or edited.`);
+  else if(r.phase==='planned, nothing built')
+    bits.push('It produced a plan and stopped there. Nothing was built.');
+  else if(r.phase==='waiting on a decision')
+    bits.push('It stopped on a question for you, so nothing moved after that.');
+  else if(r.phase==='worked via shell')
+    bits.push(`Did substantial work through shell commands (<b>${r.bash_calls||0}</b> `
+      +`Bash calls). Files made that way are not counted.`);
+  else if(r.phase==='investigated')
+    bits.push('It read and searched but never wrote anything \u2014 this was a question, '
+            +'not a build.');
+  else bits.push('Conversation only, no tools used.');
+  if(r.plan) bits.push(`A plan was written to <code>${esc(r.plan)}</code>.`);
+  if((r.top_tools||[]).length)
+    bits.push(`Mostly ${r.top_tools.slice(0,3).map(t=>`<code>${esc(t)}</code>`).join(', ')}.`);
+  bits.push('<span style="color:var(--faint)">Files counted are Write/Edit only \u2014 '
+           +'anything created through a shell command is not counted here.</span>');
+  return bits.join(' ');
+}
+function selectStore(el,sub,st){
+  if(!st) return;
+  selStore=st.id;
+  const readers=(BRAIN.links||[]).filter(l=>l.store===st.id);
+  const byId={}; AGENTS.forEach(a=>byId[a.id]=a);
+  const writers=AGENTS.filter(a=>(a.writes||[]).some(w=>String(w).startsWith(st.id+'/')));
+  sub.textContent='brain · '+st.label.toLowerCase();
+  el.innerHTML=`
+    <h2 class="bname">${esc(st.label)}</h2>
+    <div class="bdist">THE BRAIN · ${st.external
+      ? 'outside this machine' : '<code>'+esc(st.path||st.id)+'</code>'}</div>
+    <div class="pills">
+      <span class="pill">${st.files_label||st.files} files</span>
+      ${st.seeded?`<span class="pill scaffold">${st.seeded} unfilled</span>`:''}
+      ${st.capped?'<span class="pill">sampled \u2014 cold % not shown</span>'
+        :st.rot>=.35?`<span class="pill failing">${Math.round(st.rot*100)}% cold</span>`
+                   :`<span class="pill live">${Math.round(st.rot*100)}% cold</span>`}
+    </div>
+    <p class="purpose">${esc(st.blurb||'')}</p>
+    ${(st.databases||[]).length?`<div class="sect">Databases</div>
+      <ul class="writes">${st.databases.map(db=>
+        `<li>${esc(db.title)} · ${db.pages} pages${db.stale?' · '+db.stale+' stale':''}</li>`
+      ).join('')}</ul>`:''}
+    ${!readers.length?`<div class="alert">No agent reads this.${writers.length
+      ?' It is being written to and never consulted.'
+      :' Nothing on the map writes it either \u2014 only people do.'}</div>`:''}
+    <div class="sect">Read by ${readers.length}</div>
+    <ul class="writes">${readers.length
+      ? readers.map(l=>`<li>${esc((byId[l.agent]||{}).name||l.agent)} · ${l.paths} path${
+          l.paths===1?'':'s'}</li>`).join('')
+      : '<li style="color:var(--amber)">nobody</li>'}</ul>
+    <div class="sect">Written by ${writers.length}</div>
+    <ul class="writes">${writers.length
+      ? writers.slice(0,8).map(a=>`<li>${esc(a.name)}</li>`).join('')
+      : '<li style="color:var(--faint)">nobody</li>'}</ul>
+    <dl>
+      <dt>Newest</dt><dd>${st.newest_h!=null?ago(st.newest_h):'\u2014'}</dd>
+      <dt>Oldest</dt><dd>${st.oldest_d!=null?st.oldest_d+' days':'\u2014'}</dd>
+    </dl>`;
+}
+
+function selectSite(el,sub,r){
+  if(!r) return;
+  sub.textContent='project · '+r.state;
+  const SRC={projects:'a project folder', plan:'a plan in ~/.claude/plans',
+             terminal:'an open Claude Code terminal'};
+  const cls={open:'live',started:'cloud',stalled:'',planned:'scaffold'}[r.state]||'';
+  el.innerHTML=`
+    <h2 class="bname">${esc(r.name)}</h2>
+    <div class="bdist">THE YARDS · ${esc(SRC[r.source]||r.source)}</div>
+    <div class="pills">
+      <span class="pill ${ {finish:'cloud',decide:'scaffold',let_go:'failing'}[r.street]||'' }">${
+        esc(STREET_NAME[r.street]||'')}</span>
+      <span class="pill ${cls}">${esc(r.state)}</span>
+      ${r.code_files?`<span class="pill">${r.code_files} code files</span>`
+                    :'<span class="pill">no code</span>'}
+      ${r.idle_days?`<span class="pill">${Math.round(r.idle_days)}d idle</span>`:''}
+      ${r.cost_usd?`<span class="pill">~$${r.cost_usd.toFixed(0)} sunk</span>`:''}
+    </div>
+    <p class="purpose">${esc(r.evidence)}</p>
+    ${r.progress!=null?`<p class="purpose"><b>\u2248 ${Math.round(r.progress*100)}% built</b> \u2014 ${esc(r.progress_receipt||'')}</p>`:''}
+    ${r.agent?`<p class="purpose" style="color:var(--faint)">Also standing in the city as <a href="#" data-a="${esc(r.agent)}" class="goagent">${esc(r.agent)}</a> (not live).</p>`:''}
+    ${r.street==='let_go'?`<div class="alert">${r.code_files
+        ?'Real code, idle past eight weeks.':'A plan with nothing built after four weeks.'}${
+        (r.let_go_streak||0)>=2?' It was here at the last scan too \u2014 this is a decision being avoided, not a backlog.':''}
+      Let it go with one command. It records the decision in <code>data/let-go.md</code> and deletes nothing:</div>
+      <ul class="writes"><li>python3 sessions.py --let-go ${esc(r.id)} --why '\u2026'</li></ul>`:''}
+    ${r.street==='decide'?'<div class="alert" style="border-color:#ffb74d35;background:#ffb74d0e;color:#ffd9a3">'
+      +'Idle two to eight weeks. Finish it in the next fortnight or it moves to the let-go street.</div>':''}
+    ${r.street==='finish'&&r.state!=='open'?'<div class="alert" style="border-color:#6fb6ff35;background:#6fb6ff0e;color:#b9d8ff">'
+      +'Touched in the last two weeks. This is the one to finish, not to re-plan.</div>':''}
+    <dl>
+      ${r.path?`<dt>Lives in</dt><dd><code>${esc(r.path)}</code></dd>`:''}
+      ${r.plan?`<dt>Plan</dt><dd><code>~/.claude/plans/${esc(r.plan)}</code></dd>`:''}
+      ${r.turns?`<dt>Worked</dt><dd>${r.turns} turns</dd>`:''}
+      <dt>Source</dt><dd>${esc(SRC[r.source]||r.source)}</dd>
+    </dl>
+    ${r.session?`<div class="sect">Pick it up</div>
+      <ul class="writes"><li>claude --resume ${esc(r.session)}</li></ul>`:''}
+    <p class="mocknote">Plots come from your project folders, your Claude Code plans and
+      open terminals. List them from the shell with <code>python3 sessions.py</code>.</p>`;
+  el.querySelectorAll('.goagent').forEach(x=>x.addEventListener('click',e=>{
+    e.preventDefault(); flyTo(x.dataset.a); }));
+}
+
+function selectTerminal(el,sub,r){
+  if(!r) return;
+  sub.textContent='terminal \u00b7 pid '+r.pid;
+  const warm=(r.status==='active'||r.status==='waiting on you');
+  el.innerHTML=`
+    <h2 class="bname">${esc(r.title||r.name||'Untitled session')}</h2>
+    <div class="bdist">${esc(r.project)}</div>
+    <div class="pills">
+      <span class="pill ${warm?'live':'scaffold'}">${esc(r.status)}</span>
+      <span class="pill">${esc(idleText(r.idle_h))}</span>
+      <span class="pill">${r.turns} turns</span>
+      ${r.cost_usd?`<span class="pill">~$${r.cost_usd.toFixed(2)}</span>`:''}
+      ${r.phase?`<span class="pill ${r.phase==='built'?'live':(r.phase.indexOf('nothing')>=0?'scaffold':'')}">${esc(r.phase)}</span>`:''}
+      ${r.mode&&r.mode!=='normal'?`<span class="pill">${esc(r.mode)} mode</span>`:''}
+      ${r.permission_mode?`<span class="pill">${esc(r.permission_mode)}</span>`:''}
+    </div>
+    ${r.nudge?'<div class="alert">It has been holding an answer for hours. That is the '
+      +'difference between parked on purpose and forgotten.</div>'
+      :(r.waiting_on_you?'<div class="alert">It answered and has been waiting for you '
+      +'ever since. Nothing is running \u2014 the ball is in your court.</div>':'')}
+    ${r.first_prompt?`<div class="sect">It started as</div>
+      <p class="purpose quote">\u201c${esc(r.first_prompt)}\u201d</p>`:''}
+    ${r.last_prompt&&r.last_prompt!==r.first_prompt?`<div class="sect">You last asked</div>
+      <p class="purpose quote">\u201c${esc(r.last_prompt)}\u201d</p>`:''}
+    <div class="sect">Progress</div>
+    <p class="purpose">${progressLine(r)}</p>
+    ${(r.files||[]).length?`<ul class="writes">${
+      r.files.slice(0,8).map(f=>`<li>${esc(f)}</li>`).join('')}${
+      r.files.length>8?`<li style="color:var(--faint)">and ${r.files.length-8} more</li>`:''
+    }</ul>`:''}
+    <dl>
+      <dt>Worked</dt><dd>${r.turns} turns \u00b7 ${r.tool_calls||0} tool calls${
+        r.span_h?` \u00b7 over ${r.span_h<48?Math.round(r.span_h)+'h':Math.round(r.span_h/24)+'d'}`:''}</dd>
+      <dt>Opened</dt><dd>${esc(r.started||'\u2014')}</dd>
+      <dt>Transcript</dt><dd>${r.size_mb} MB</dd>
+      <dt>Session</dt><dd><code>${esc((r.session||'').slice(0,8))}</code></dd>
+    </dl>
+    <div class="sect">Get back to it</div>
+    <ul class="writes"><li>claude --resume ${esc(r.session||'')}</li></ul>
+    <div class="mocknote">Run that in <b>${esc(r.project)}</b> to pick the thread back
+      up, or close the terminal to let it go.</div>`;
+}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+/* ---------------- ask: put the question to Claude ------------------------
+   Published as a claude.ai artifact with the `sample` capability, the page asks
+   Claude itself. Anywhere else (a local file, a static host) it hands you the same
+   evidence as a prompt to paste into Claude Code, which can also open the files. */
+let sampler=null, sampleReady=false;
+(async()=>{
+  try{ sampler=await window.claude?.use?.('sample'); }catch(e){ sampler=null; }
+  sampleReady=true;
+  if(sel>=0 && sel<AGENTS.length) mountAsk(AGENTS[sel]);
+})();
+
+function contextFor(a){
+  const mine=CITY.findings.filter(f=>f.agent===a.id).map(f=>'- '+f.title+': '+f.evidence);
+  return [
+    'AGENT: '+a.name+'  (district: '+(dmap[a.district]||{}).name+')',
+    'What it is: '+a.purpose,
+    'State: '+a.state+' ('+(LABEL[a.state]||a.state)+')',
+    'Runs on: '+(a.host==='cloud'?'a cloud host':a.host==='server'?'an always-on server ('+(a.where||'')+')':'this machine'),
+    'Schedule: '+a.schedule+(a.schedule_source?'  [defined in '+a.schedule_source+']':''),
+    'Last run: '+(a.hours_ago==null&&a.last_run_note?a.last_run_note:ago(a.hours_ago))+(a.last_run_iso?' ('+a.last_run_iso+')':''),
+    a.last_run_note&&a.hours_ago!=null?'Probe notes: '+a.last_run_note:'',
+    a.paused?'Paused on purpose since '+a.paused.since+' ('+a.paused.why+'). Resume: '+a.paused.resume:'',
+    a.last_exit!=null?'Last exit code: '+a.last_exit:'',
+    a.installed!=null?'Installed: '+a.installed+' · loaded: '+a.loaded:'',
+    a.log_path?'Log: '+a.log_path+(a.log_size!=null?' ('+a.log_size+' bytes)':''):'',
+    a.err_log?'Error log: '+a.err_log+' ('+a.err_size+' bytes)':'',
+    (a.run_errors||[]).length?'Errors from its latest run:\n'+a.run_errors.join('\n'):'',
+    'Writes: '+(a.writes.join('; ')||'nothing declared'),
+    (a.reads||[]).length?'Reads: '+a.reads.join('; '):'',
+    (a.feeds||[]).length?'Feeds: '+a.feeds.join(', '):'',
+    (a.fed_by||[]).length?'Fed by: '+a.fed_by.join(', '):'',
+    mine.length?'Open findings against it:\n'+mine.join('\n'):'No open findings.',
+    a.readme?'\nIts README ('+a.readme_path+'):\n'+a.readme:'',
+    a.log_tail?'\nTail of its log:\n'+a.log_tail:'',
+  ].filter(Boolean).join('\n');
+}
+const ASK_PREAMBLE='You are answering a question about one automated job (an "agent"). '
+  +'Everything known about it is below; it was read off the machine at the last scan. '
+  +'Answer from it. If the evidence does not settle the question, say exactly what you '
+  +'would check next and where. Be concrete and brief.';
+
+function mountAsk(a){
+  const box=document.getElementById('ask'); if(!box) return;
+  if(!sampleReady){ box.innerHTML='<div class="unavail">Connecting…</div>'; return; }
+  box.innerHTML=`
+    <label for="askq" class="sr">Question about ${esc(a.name)}</label>
+    <textarea id="askq" placeholder="e.g. why has it not run since Tuesday?"></textarea>
+    <button class="askbtn" id="askbtn">${sampler?'Ask':'Copy as a prompt for Claude'}</button>
+    <div id="ans"></div>`;
+  const btn=document.getElementById('askbtn'), q=document.getElementById('askq');
+  const prompt=text=>ASK_PREAMBLE+'\n\n=== EVIDENCE ===\n'+contextFor(a)
+    +'\n\n=== QUESTION ===\n'+(text||'What is the most useful thing to know or fix about this agent right now?');
+  const copy=async()=>{
+    const txt=prompt(q.value.trim()), ans=document.getElementById('ans');
+    let ok=false;
+    try{ await navigator.clipboard.writeText(txt); ok=true; }catch(e){}
+    ans.innerHTML=ok
+      ? '<div class="answer"><div class="who">copied</div>Paste it into Claude Code (run it in the '
+        +'folder where this agent lives, so it can open the files too).</div>'
+      : '<div class="answer"><div class="who">copy this</div><textarea readonly rows="8" style="width:100%">'
+        +esc(txt)+'</textarea></div>';
+  };
+  const go=async()=>{
+    if(!sampler) return copy();
+    const text=q.value.trim(); if(!text) return;
+    btn.disabled=true; btn.textContent='Thinking…';
+    const ans=document.getElementById('ans');
+    ans.innerHTML='<div class="answer"><div class="who">answer · grounded in '
+      +esc(a.name)+'’s scan</div><span id="atext">Thinking…</span></div>';
+    const out=document.getElementById('atext');
+    try{
+      const r=await sampler([{role:'user',content:prompt(text)}],
+        {onText:({text})=>{out.textContent=text;}, modelTier:'default'});
+      out.textContent=r.text;
+    }catch(err){
+      out.textContent=(err && err.code==='rate_limited')
+        ? 'Too many questions at once. Give it a moment and ask again.'
+        : 'That question did not get through'+(err&&err.message?': '+err.message:'.');
+    }
+    btn.disabled=false; btn.textContent='Ask';
+  };
+  btn.addEventListener('click',go);
+  q.addEventListener('keydown',e=>{ if((e.metaKey||e.ctrlKey)&&e.key==='Enter') go(); });
+}
+
+/* ---------------- filter, search, keyboard ---------------- */
+const FILTERS=[
+  ['failing','failing',  a=>a.state==='failing'||a.state==='misconfigured'],
+  ['scaffold','never installed', a=>a.state==='scaffold'],
+  ['cloud','cloud',      a=>a.host==='cloud'],
+  ['server','always-on server', a=>a.host==='server'],
+  ['dark','dark',        a=>a.state==='ruin'||a.state==='dormant'],
+  ['paused','paused',    a=>a.state==='paused'],
+  ['flagged','flagged',  a=>flaggedIds.has(a.id)],
+  ['tier','value tier 4+', a=>a.value_tier>=4],
+  ['unwatched','not watched', a=>a.watch==='none'&&
+      (a.state==='live'||a.state==='failing'||a.state==='misconfigured')],
+  ['runsonly','watched: runs only', a=>a.watch==='runs'&&
+      (a.state==='live'||a.state==='failing'||a.state==='misconfigured')],
+];
+let active=new Set(), query='';
+let flaggedIds=new Set();
+
+function applyFilters(){
+  const q=query.trim().toLowerCase();
+  const any=active.size>0||q;
+  AGENTS.forEach(a=>{
+    let show=true;
+    if(active.size) show=[...active].every(k=>FILTERS.find(f=>f[0]===k)[2](a));
+    if(show&&q) show=(a.name+' '+a.purpose+' '+a.writes.join(' ')).toLowerCase().includes(q);
+    a._dim=any&&!show;
+  });
+  // cranes follow the search box; a building-state chip dims them all
+  SITES.forEach(r=>{
+    const hay=((r.name||'')+' '+(r.path||'')+' '+(r.evidence||'')).toLowerCase();
+    r._dim = active.size>0 ? true : (q ? !hay.includes(q) : false);
+  });
+  pickDirty=true;
+  Field.dim();
+  const n=AGENTS.filter(a=>!a._dim).length;
+  document.getElementById('fcount').textContent = any
+    ? `${active.size?active.size+' on \u00b7 ':''}${n} of ${AGENTS.length} shown` : '';
+}
+function renderChips(){
+  const el=document.getElementById('chips');
+  // each chip says how many it would show; one that matches nothing is greyed out
+  el.innerHTML=FILTERS.map(([k,label,fn])=>{
+    const n=AGENTS.filter(fn).length;
+    return `<button class="chip" data-k="${k}" aria-pressed="false"${n?'':' disabled'}>`
+      +`${label} <span class="cn">${n}</span></button>`; }).join('');
+  el.querySelectorAll('.chip').forEach(b=>b.addEventListener('click',()=>{
+    const k=b.dataset.k;
+    if(active.has(k)) active.delete(k); else active.add(k);
+    b.setAttribute('aria-pressed', active.has(k)?'true':'false');
+    applyFilters();
+  }));
+  const q=document.getElementById('q');
+  q.addEventListener('input',()=>{query=q.value;applyFilters();});
+  q.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){
+      const first=AGENTS.find(a=>!a._dim);
+      if(first) flyTo(first.id);
+    }
+    if(e.key==='Escape'){ q.value=''; query=''; applyFilters(); }
+  });
+}
+// arrow keys walk the visible city; Escape clears the selection
+addEventListener('keydown',e=>{
+  if(e.target.matches?.('input,textarea')) return;
+  if(document.body.classList.contains('touring')) return;
+  const vis=AGENTS.map((a,i)=>({a,i})).filter(x=>!x.a._dim);
+  if(!vis.length) return;
+  if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key==='ArrowLeft'||e.key==='ArrowUp'){
+    e.preventDefault();
+    const back=(e.key==='ArrowLeft'||e.key==='ArrowUp');
+    const at=vis.findIndex(x=>x.i===sel);
+    const nx=vis[(at+(back?-1:1)+vis.length)%(vis.length||1)] || vis[0];
+    flyTo(nx.a.id);
+  }
+  if(e.key==='Escape'){ select(-1); }
+});
+
+/* ---------------- findings rail + hud ---------------- */
+function siteRow(r){
+  const cls=r.state==='open'?' warm':(r.street==='let_go'?' nudge':'');
+  return `<button class="term${cls}" data-a="${esc(r.id)}">
+    <b>${esc(r.name)}</b>
+    <span>${esc(r.state)} · ${r.code_files?r.code_files+' code files':'no code'}${
+      r.idle_days?' · '+Math.round(r.idle_days)+'d idle':''}${
+      r.cost_usd?' · ~$'+r.cost_usd.toFixed(0):''}${
+      (r.let_go_streak||0)>=2?' · here '+r.let_go_streak+' scans running':''}</span></button>`;
+}
+function termRow(r){
+  const warm=(r.status==='active'||r.status==='waiting on you');
+  return `<button class="term${warm?' warm':''}${r.nudge?' nudge':''}" data-a="${r.pid}">
+    <b>${r.nudge?'\u25b2 ':''}${esc(r.title||r.name||'Untitled')}</b>
+    <span>${esc(r.project)} \u00b7 ${esc(idleText(r.idle_h))}${
+      r.waiting_on_you?' \u00b7 waiting on you':''}${
+      r.cost_usd?' \u00b7 ~$'+r.cost_usd.toFixed(0):''}</span></button>`;
+}
+
+/* Triage: the dead terminals, dearest first, with the three things you can do
+   about each. The page cannot kill a process or write to disk, so it hands
+   over the exact commands instead of pretending otherwise. */
+function renderTriage(){
+  const el=document.getElementById('panel'), sub=document.getElementById('isub');
+  const dead=TERMS.filter(r=>r.idle_h>24*5).sort((a,b)=>b.cost_usd-a.cost_usd);
+  const sunk=dead.reduce((n,r)=>n+(r.cost_usd||0),0);
+  sel=-1; document.body.classList.remove('noinsp');
+  sub.textContent='triage \u00b7 '+dead.length+' abandoned';
+  el.innerHTML=`
+    <h2 class="bname">Triage</h2>
+    <div class="bdist">${dead.length} terminals idle 5+ days</div>
+    <p class="purpose">About <b>$${sunk.toFixed(0)}</b> of usage sits in these.
+      That is spent, not spending \u2014 an idle terminal costs nothing per hour, and
+      the prompt cache expired long ago, so resuming saves none of it. The reason to
+      act is to keep what they learned, not to recover the money.</p>
+    <div class="sect">One at a time</div>
+    ${dead.map(r=>`
+      <div class="tri">
+        <b>${esc(r.title||('pid '+r.pid))}</b>
+        <span>${Math.round(r.idle_h/24)}d idle \u00b7 ${r.turns} turns \u00b7
+          ~$${(r.cost_usd||0).toFixed(2)} \u00b7 ${esc(r.phase||'')}</span>
+        <div class="tri-cmds">
+          <code>claude --resume ${esc(r.session)}</code>
+          <code>kill ${r.pid}</code>
+        </div>
+      </div>`).join('')}
+    <p class="mocknote">Cost is an estimate from the token counts in each transcript and the
+      per-million rates in <code>[yards.rates]</code>. Treat it as a range, not a bill.</p>`;
+}
+// one foldable rail section; only "Needs a decision" starts open
+function grp(cls,label,n,body,open,hint){
+  return `<details class="grp"${open?' open':''}><summary class="${cls}"${hint?` title="${esc(hint)}"`:''}><span>${label}</span>`
+    +`<span class="n">${n}</span></summary>${body}</details>`;
+}
+const shortDate=d=>{ const t=Date.parse(d||''); return isNaN(t)?(d||'')
+  :new Date(t).toLocaleDateString([], {month:'short',day:'numeric'}); };
+function renderFindings(){
+  const el=document.getElementById('findings'), yel=document.getElementById('yardsrail');
+  const groups=[['crit','Needs a decision'],['warn','Quietly broken'],['info','Worth knowing']];
+  const tc=CITY.terminal_counts||{};
+  const warm=TERMS.filter(r=>r.status==='active'||r.status==='waiting on you');
+  const cold=TERMS.filter(r=>r.status==='stale'||r.status==='abandoned');
+  const sc=CITY.site_counts||{};
+  const byState=k=>SITES.filter(r=>r.state===k);
+  const tHtml = SITES.length ? (
+     (cold.length?`<button class="triage-btn" id="triagebtn">Triage ${cold.length}
+         abandoned terminals \u00b7 ~$${TERMS.filter(r=>r.idle_h>24*5)
+           .reduce((n,r)=>n+(r.cost_usd||0),0).toFixed(0)} sunk</button>`:'')
+     + (sc.delta?`<div class="tgroup" style="text-transform:none;letter-spacing:0;margin-top:-2px">
+          ${sc.delta.then} \u2192 ${sc.delta.now} projects since ${esc(shortDate(sc.delta.since))} \u00b7
+          ${sc.delta.new} new</div>`:'')
+     + [['finish','Finish','a terminal is still open on it, or it has code touched in the last two weeks'],
+        ['decide','Decide','idle two to eight weeks'],
+        ['let_go','Let go','idle past eight weeks, or a plan that was never built']]
+       .map(([k,label,hint])=>{
+         const rows=SITES.filter(r=>r.street===k); if(!rows.length) return '';
+         const cap=k==='decide'?8:99;
+         return grp('tgroup',label,rows.length, rows.slice(0,cap).map(siteRow).join('')
+              + (rows.length>cap
+                 ? `<div class="tgroup" style="opacity:.6">and ${rows.length-cap} more \u2014 click the plots</div>`:''),
+              false,hint);
+       }).join('')
+   ) : '';
+  const ch=(CITY.changed||[]);
+  const chHtml = ch.length
+    ? grp('fgroup','Changed since '+esc(shortDate(ch[0].since)||'last scan'),ch.length,
+        ch.slice(0,8).map(c=>`<button class="changed" data-a="${esc(c.agent)}">`
+        +`<b>${esc(c.agent)}</b> \u00b7 ${esc(c.what)}: ${esc(c.detail)}</button>`).join(''))
+    : '';
+  yel.innerHTML=tHtml;
+  el.innerHTML=groups.map(([k,label])=>{
+    const rows=CITY.findings.filter(f=>f.sev===k);
+    if(!rows.length) return '';
+    return grp('fgroup',label,rows.length,
+      rows.map((f,n)=>`<button class="f ${k}" data-a="${esc(f.agent||'')}">
+        <b>${esc(f.title)}</b><span>${esc(f.evidence)}</span></button>`).join(''), k==='crit');
+  }).join('')+chHtml;
+  const crit=CITY.findings.filter(f=>f.sev==='crit').length;
+  const bf=document.getElementById('bfind');
+  bf.textContent=CITY.findings.length; bf.classList.toggle('hot',crit>0);
+  document.getElementById('byards').textContent=SITES.length||'';
+  const tb=document.getElementById('triagebtn');
+  if(tb) tb.addEventListener('click',renderTriage);
+  document.querySelectorAll('.col.left .f,.col.left .changed,.col.left .term').forEach(b=>b.addEventListener('click',()=>{
+    if(b.dataset.a) flyTo(b.dataset.a);
+  }));
+  flaggedIds=new Set(CITY.findings.filter(f=>f.sev!=='info'&&f.agent).map(f=>f.agent));
+  const c=CITY.counts||{};
+  const st=[`<b>${c.total||0}</b> agents`, `<b class="ok">${c.live||0}</b> live`,
+    `<b class="bad">${c.failing||0}</b> failing`,
+    `<b class="warn">${c.scaffold||0}</b> never installed`,
+    `<b class="sky">${c.cloud||0}</b> in the cloud`, `<b class="off">${c.dark||0}</b> dark`];
+  if(c.server) st.splice(5,0,`<b class="sky">${c.server}</b> on a server`);
+  if(c.unknown) st.push(`<b class="off">${c.unknown}</b> unknown`);
+  if(c.paused) st.push(`<b class="off">${c.paused}</b> paused`);
+  if(SITES.length) st.push(`<b class="warn">${(CITY.site_counts||{}).total||0}</b> projects, `
+      +`<b class="bad">${((CITY.site_counts||{}).streets||{}).let_go||0}</b> to let go`);
+  if((BRAIN.totals||{}).files) st.push(`<b>${BRAIN.totals.files}</b> in the brain, `
+      +`<b class="bad">${BRAIN.totals.unplumbed}</b> agents not plumbed in`);
+  // agents, live, failing, never installed stay in view; the rest open on click
+  document.getElementById('hudsum').innerHTML=st.slice(0,4).map(x=>`<span>${x}</span>`).join('');
+  document.getElementById('huditems').innerHTML=st.slice(4).map(x=>`<span>${x}</span>`).join('');
+}
+
+
+/* ---------------- the field: same snapshot, radial ----------------------
+   The city answers "what is running". The field answers "what is wired to
+   what": one core of shared files, six district spokes, every agent hanging
+   off its district. It shares the left rail's filters and the inspector —
+   it is a second drawing of the same state, never a second copy of it. */
+const Field = (() => {
+  const NS='http://www.w3.org/2000/svg';
+  const svg=document.getElementById('field');
+  const el=(n,at={})=>{const e=document.createElementNS(NS,n);
+    for(const k in at) e.setAttribute(k,at[k]); return e;};
+
+  const ACCENT={}; DISTRICTS.forEach((d,k)=>ACCENT[d.id]=d.accent||palette(k));
+  const SCOL={live:'#37ca37',failing:'#ff6b5e',misconfigured:'#ff6b5e',scaffold:'#ffb74d',
+              manual:'#6fb6ff',dormant:'#4a5468',ruin:'#3a4055',paused:'#8a93a6',unknown:'#5c6478'};
+  const colOf=a=>SCOL[a.state]||'#4a5468';
+  const lit=a=>a.state==='live'||a.state==='manual';
+
+  /* the brain: every path more than one agent touches */
+  const touch=new Map();
+  const hit=(path,id,k)=>{
+    const key=String(path||'').trim(); if(!key) return;
+    if(!touch.has(key)) touch.set(key,{path:key,reads:[],writes:[]});
+    const t=touch.get(key); if(!t[k].includes(id)) t[k].push(id);
+  };
+  AGENTS.forEach(a=>{ (a.writes||[]).forEach(w=>hit(w,a.id,'writes'));
+                      (a.reads||[]).forEach(r=>hit(r,a.id,'reads')); });
+  const MEM=[...touch.values()].map(t=>({...t,n:new Set([...t.reads,...t.writes]).size}))
+    .filter(t=>t.n>1).sort((a,b)=>b.n-a.n);
+  const MEM_DRAWN=14;
+
+  const CX=500,CY=500,R_HUB=215,R0=300,ROW=33,LEAF=15,R_LABEL=452;
+  const VB0={x:-25,y:-25,w:1050,h:1050};
+  const dists=DISTRICTS.map((d,k)=>({...d,accent:ACCENT[d.id]||'#8b93a7',
+    // half a step off north: leaves top and bottom centre clear for the counts bar
+    // and the hint, so nothing in the chrome ever sits on a spoke
+    ang:-Math.PI/2+(k+.5)*2*Math.PI/DISTRICTS.length,
+    agents:AGENTS.map((a,i)=>({a,i})).filter(x=>x.a.district===d.id)}));
+  const pos=new Map();
+  let spread=25, rate=4, labels=false, built=false, raf=null;
+  let vb={...VB0}, drag=null;
+
+  function layout(){
+    const sp=spread*Math.PI/180;
+    const order=['live','manual','failing','misconfigured','paused','unknown','scaffold','dormant','ruin'];
+    for(const d of dists){
+      const list=d.agents.slice().sort((p,q)=>
+        order.indexOf(p.a.state)-order.indexOf(q.a.state)||p.a.id.localeCompare(q.a.id));
+      let k=0,row=0;
+      while(k<list.length){
+        const r=R0+row*ROW, per=Math.max(3,Math.round(2*sp*r/30));
+        const take=list.slice(k,k+per);
+        take.forEach((x,m)=>{
+          const u=take.length===1?.5:m/(take.length-1);
+          const ang=d.ang-sp+u*2*sp;
+          pos.set(x.a.id,{x:CX+Math.cos(ang)*r,y:CY+Math.sin(ang)*r,ang,r,d,i:x.i});
+        });
+        k+=per; row++;
+      }
+    }
+  }
+
+  function build(){
+    layout();
+    svg.setAttribute('viewBox',`${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+    svg.textContent='';
+    const root=el('g',{id:'froot'}); svg.appendChild(root);
+    const defs=el('defs');
+    defs.innerHTML='<radialGradient id="fcore"><stop offset="0" stop-color="#eaf2ff" stop-opacity=".9"/>'
+      +'<stop offset=".45" stop-color="#7aa7ff" stop-opacity=".3"/>'
+      +'<stop offset="1" stop-color="#7aa7ff" stop-opacity="0"/></radialGradient>';
+    root.appendChild(defs);
+    [R_HUB,R0+ROW,R0+ROW*3].forEach(r=>root.appendChild(
+      el('circle',{cx:CX,cy:CY,r,fill:'none',stroke:'#161b27','stroke-width':1})));
+    const gLink=el('g'),gMem=el('g'),gNode=el('g'),gLab=el('g');
+    root.append(gLink,gMem,gNode,gLab);
+
+    gMem.appendChild(el('circle',{cx:CX,cy:CY,r:96,fill:'url(#fcore)'}));
+    MEM.slice(0,MEM_DRAWN).forEach((m,k)=>{
+      const a=k*2.399963, r=16+5.6*Math.sqrt(k)*2.1;   // phyllotaxis: reads as a cluster, not a ring
+      m.x=CX+Math.cos(a)*r; m.y=CY+Math.sin(a)*r;
+      const dot=el('circle',{cx:m.x,cy:m.y,r:1.6+Math.min(m.n,5)*.55,fill:'#cdddff',
+        opacity:.85,class:'fnode'});
+      dot.addEventListener('mouseenter',e=>tipAt(e,`${m.path} · ${m.writes.length} write, ${m.reads.length} read`));
+      dot.addEventListener('mouseleave',tipOff);
+      dot.addEventListener('click',()=>memPanel(m));
+      gMem.appendChild(dot);
+    });
+    gMem.appendChild(el('circle',{cx:CX,cy:CY,r:3.4,fill:'#fff'}));
+    const cl=el('text',{x:CX,y:CY+96,'text-anchor':'middle',class:'alb',fill:'#616b84'});
+    cl.textContent=`shared memory · ${MEM.length} files`;
+    gLab.appendChild(cl);
+
+    for(const d of dists){
+      const hx=CX+Math.cos(d.ang)*R_HUB, hy=CY+Math.sin(d.ang)*R_HUB;
+      d.hx=hx; d.hy=hy;
+      gLink.appendChild(el('line',{x1:CX+Math.cos(d.ang)*88,y1:CY+Math.sin(d.ang)*88,
+        x2:hx,y2:hy,class:'spoke','stroke-width':1.4}));
+
+      for(const {a,i} of d.agents){
+        const p=pos.get(a.id); if(!p) continue;
+        const mx=(hx+p.x)/2+(p.x-CX)*.02, my=(hy+p.y)/2+(p.y-CY)*.02;
+        gLink.appendChild(el('path',{d:`M${hx},${hy} Q${mx},${my} ${p.x},${p.y}`,class:'twig',
+          stroke:d.accent,opacity:a.state==='live'?.3:.13,'data-ag':a.id}));
+
+        const g=el('g',{class:'fnode','data-ag':a.id,tabindex:'0',role:'button',
+          'aria-label':a.name});
+        if(lit(a)) g.appendChild(el('circle',{cx:p.x,cy:p.y,r:7.5,fill:colOf(a),opacity:.16}));
+        g.appendChild(el('circle',{cx:p.x,cy:p.y,r:lit(a)?3.4:2.6,fill:colOf(a),
+          opacity:lit(a)?1:.6}));
+        (a.writes||[]).slice(0,6).forEach((w,m,arr)=>{           // its outputs, one dot each
+          const u=arr.length===1?0:(m/(arr.length-1)-.5)*2;
+          const ang=p.ang+u*.09, r=p.r+LEAF;
+          g.appendChild(el('circle',{cx:CX+Math.cos(ang)*r,cy:CY+Math.sin(ang)*r,r:1.15,
+            fill:'#5c6580',opacity:lit(a)?.75:.3}));
+        });
+        g.addEventListener('mouseenter',e=>tipAt(e,`${a.name} · ${stateLine(a)}`));
+        g.addEventListener('mouseleave',tipOff);
+        g.addEventListener('click',()=>select(i));
+        g.addEventListener('keydown',e=>{ if(e.key==='Enter') select(i); });
+        gNode.appendChild(g);
+
+        if(labels){
+          const flip=Math.cos(p.ang)<0, lr=p.r+LEAF+6;
+          const lx=CX+Math.cos(p.ang)*lr, ly=CY+Math.sin(p.ang)*lr;
+          const t=el('text',{x:lx,y:ly+3,class:'alb','text-anchor':flip?'end':'start',
+            transform:`rotate(${p.ang*180/Math.PI+(flip?180:0)},${lx},${ly})`});
+          t.textContent=a.id; gLab.appendChild(t);
+        }
+      }
+
+      const hub=el('g',{class:'fnode',tabindex:'0',role:'button','aria-label':d.name});
+      hub.appendChild(el('circle',{cx:hx,cy:hy,r:13,fill:d.accent,opacity:.14}));
+      hub.appendChild(el('circle',{cx:hx,cy:hy,r:8,fill:'#0b0e16',stroke:d.accent,'stroke-width':1.6}));
+      hub.appendChild(el('circle',{cx:hx,cy:hy,r:2.6,fill:d.accent}));
+      hub.addEventListener('mouseenter',e=>tipAt(e,`${d.name} · ${d.agents.length} agents`));
+      hub.addEventListener('mouseleave',tipOff);
+      hub.addEventListener('click',()=>{ const q=document.getElementById('q');
+        q.value=''; query=''; applyFilters(); zoomTo(d.ang); });
+      gNode.appendChild(hub);
+
+      const lr=labels?R_LABEL+48:R_LABEL;
+      const t=el('text',{x:CX+Math.cos(d.ang)*lr,y:CY+Math.sin(d.ang)*lr,class:'dlbl',
+        'text-anchor':'middle',fill:'#828ba1'});
+      t.textContent=d.name.replace(/ (District|Center|Row|Works)$/,'').toUpperCase();
+      gLab.appendChild(t);
+    }
+
+    // shared-file chords, bowed sideways: straight ones all cross the core and erase it
+    for(const m of MEM.slice(0,MEM_DRAWN)){
+      for(const id of new Set([...m.writes,...m.reads])){
+        const p=pos.get(id); if(!p) continue;
+        const qx=(p.x+m.x)/2+(CY-p.y)*.16, qy=(p.y+m.y)/2+(p.x-CX)*.16;
+        gLink.insertBefore(el('path',{class:'chord',opacity:'.2','data-ag':id,
+          d:`M${p.x},${p.y} Q${qx},${qy} ${m.x},${m.y}`}),gLink.firstChild);
+      }
+    }
+    // hand-offs: one job writes the file the next one reads
+    (CITY.edges||[]).forEach(e=>{
+      const a=pos.get(e.from), b=pos.get(e.to); if(!a||!b) return;
+      const qx=CX+((a.x+b.x)/2-CX)*.42, qy=CY+((a.y+b.y)/2-CY)*.42;
+      gLink.appendChild(el('path',{class:'chord','stroke-dasharray':'2 3',opacity:'.5',
+        stroke:'#7f8fb5','data-ag':e.from,'data-ag2':e.to,
+        d:`M${a.x},${a.y} Q${qx},${qy} ${b.x},${b.y}`}));
+    });
+
+    root.appendChild(el('g',{id:'fpulse'}));
+    root.appendChild(el('circle',{id:'fsel',r:11,cx:-999,cy:-999}));
+    built=true;
+    dim(); mark(sel); pulses();
+  }
+
+  /* pulses ride core -> hub -> agent, one per live job */
+  function pulses(){
+    if(raf){cancelAnimationFrame(raf);raf=null;}
+    const host=svg.querySelector('#fpulse'); if(!host) return;
+    host.textContent='';
+    if(!rate || reduced) return;
+    const riders=AGENTS.filter(a=>a.state==='live'&&pos.has(a.id)).map(a=>{
+      const c=el('circle',{r:1.5,fill:colOf(a),opacity:.9}); host.appendChild(c);
+      return {p:pos.get(a.id),c,t:Math.random(),a};
+    });
+    const step=()=>{
+      const on=document.body.classList.contains('fieldview');
+      for(const r of riders){
+        if(on){
+          r.t=(r.t+.0016*rate)%1;
+          const d=r.p.d, u=r.t; let x,y;
+          if(u<.45){ const k=u/.45;
+            x=CX+Math.cos(d.ang)*(88+(R_HUB-88)*k); y=CY+Math.sin(d.ang)*(88+(R_HUB-88)*k);
+          } else { const k=(u-.45)/.55; x=d.hx+(r.p.x-d.hx)*k; y=d.hy+(r.p.y-d.hy)*k; }
+          r.c.setAttribute('cx',x); r.c.setAttribute('cy',y);
+          r.c.setAttribute('opacity',(.15+.75*Math.sin(Math.PI*r.t)).toFixed(2));
+          r.c.setAttribute('visibility', r.a._dim?'hidden':'visible');
+        }
+      }
+      raf=requestAnimationFrame(step);
+    };
+    step();
+  }
+
+  function dim(){
+    if(!built) return;
+    const off=new Set(AGENTS.filter(a=>a._dim).map(a=>a.id));
+    svg.querySelectorAll('[data-ag]').forEach(n=>{
+      const a=n.getAttribute('data-ag'), b=n.getAttribute('data-ag2');
+      n.classList.toggle('fdim', off.has(a)||(b&&off.has(b)));
+    });
+  }
+  function mark(i){
+    const ring=svg.querySelector('#fsel'); if(!ring) return;
+    const a=AGENTS[i], p=a&&pos.get(a.id);
+    if(!p){ ring.setAttribute('cx',-999); ring.setAttribute('cy',-999); return; }
+    ring.setAttribute('cx',p.x); ring.setAttribute('cy',p.y);
+  }
+  function setVB(){ svg.setAttribute('viewBox',`${vb.x} ${vb.y} ${vb.w} ${vb.h}`); }
+  function zoomTo(ang){                       // pull the view onto one district's fan
+    const x=CX+Math.cos(ang)*360, y=CY+Math.sin(ang)*360, w=620;
+    vb={x:x-w/2,y:y-w/2,w,h:w}; setVB();
+  }
+  function focus(id){
+    const i=AGENTS.findIndex(a=>a.id===id); if(i<0) return;
+    select(i);
+    const p=pos.get(id); if(!p) return;
+    const w=Math.min(vb.w,700);
+    vb={x:p.x-w/2,y:p.y-w/2,w,h:w}; setVB();
+  }
+  function memPanel(m){
+    const list=ids=>ids.length
+      ? '<ul class="writes">'+ids.map(i=>`<li>${esc(i)}</li>`).join('')+'</ul>'
+      : '<p class="unavail">nobody</p>';
+    sel=-1; mark(-1); document.body.classList.remove('noinsp');
+    document.getElementById('isub').textContent='shared file';
+    document.getElementById('panel').innerHTML=`
+      <h2 class="bname">${esc(m.path)}</h2>
+      <div class="bdist">shared memory · ${m.n} agents</div>
+      <p class="purpose">More than one agent depends on this file, so a change here is
+        never local. That is the whole reason the centre of the field exists.</p>
+      <div class="sect">Written by</div>${list(m.writes)}
+      <div class="sect">Read by</div>${list(m.reads)}`;
+  }
+
+  const tipEl=document.getElementById('tip');
+  function tipAt(e,text){
+    const r=document.getElementById('stage').getBoundingClientRect();
+    tipEl.textContent=text;
+    tipEl.style.left=(e.clientX-r.left)+'px';
+    tipEl.style.top=(e.clientY-r.top)+'px';
+    tipEl.style.opacity=1;
+  }
+  const tipOff=()=>{tipEl.style.opacity=0;};
+
+  /* pan + zoom the viewBox, so nothing ever blurs */
+  svg.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const r=svg.getBoundingClientRect();
+    const mx=vb.x+(e.clientX-r.left)/r.width*vb.w, my=vb.y+(e.clientY-r.top)/r.height*vb.h;
+    const k=Math.min(2.2,Math.max(.4,vb.w*(e.deltaY>0?1.1:.9)/VB0.w));
+    const w=VB0.w*k,h=VB0.h*k;
+    vb={x:mx-(mx-vb.x)*w/vb.w,y:my-(my-vb.y)*h/vb.h,w,h}; setVB();
+  },{passive:false});
+  svg.addEventListener('pointerdown',e=>{
+    drag={x:e.clientX,y:e.clientY,vx:vb.x,vy:vb.y};
+    svg.classList.add('drag'); svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener('pointermove',e=>{
+    if(!drag) return;
+    const r=svg.getBoundingClientRect();
+    vb.x=drag.vx-(e.clientX-drag.x)/r.width*vb.w;
+    vb.y=drag.vy-(e.clientY-drag.y)/r.height*vb.h;
+    setVB();
+  });
+  ['pointerup','pointercancel'].forEach(k=>svg.addEventListener(k,()=>{
+    drag=null; svg.classList.remove('drag');
+  }));
+
+  document.getElementById('fspread').addEventListener('input',e=>{
+    spread=+e.target.value; pos.clear(); build();
+  });
+  document.getElementById('frate').addEventListener('input',e=>{
+    rate=+e.target.value; pulses();
+  });
+  document.getElementById('flabels').addEventListener('click',e=>{
+    labels=!labels; e.currentTarget.setAttribute('aria-pressed',String(labels));
+    pos.clear(); build();
+  });
+
+  function show(on){
+    document.body.classList.toggle('fieldview',on);
+    document.getElementById('hint').textContent = on
+      ? 'drag to pan · scroll to zoom · click a node or a file in the core'
+      : mode==='yards' ? 'drag to pan · scroll to zoom · click a plot'
+      : 'drag to pan · scroll to zoom · click a building';
+    if(on && !built) build();
+    if(on) pulses();
+    tipOff();
+  }
+
+  return {show,dim,mark,focus,build:()=>{ if(built) build(); }};
+})();
+
+/* ---------------- views + zoom ---------------- */
+function setView(v){
+  document.querySelectorAll('#views button').forEach(o=>
+    o.setAttribute('aria-pressed',String(o.dataset.v===v)));
+  if(v!=='field'){
+    mode=v; document.body.classList.toggle('yardview',v==='yards');
+    hover=-1; pickDirty=true;
+    requestAnimationFrame(()=>{ resize(); fitCity(); });   // after the layout settles
+  }
+  Field.show(v==='field');
+}
+document.querySelectorAll('#views button').forEach(b=>
+  b.addEventListener('click',()=>setView(b.dataset.v)));
+function zoomBy(f){
+  const ns=Math.max(.3,Math.min(2.6,cam.s*f)), mx=W/2, my=H/2;
+  cam.x=mx-(mx-cam.x)*(ns/cam.s); cam.y=my-(my-cam.y)*(ns/cam.s); cam.s=ns; pickDirty=true;
+  userMoved=true;
+}
+document.getElementById('zin').addEventListener('click',()=>zoomBy(1.25));
+document.getElementById('zout').addEventListener('click',()=>zoomBy(0.8));
+document.getElementById('zfit').addEventListener('click',()=>{fitCity();pickDirty=true;});
+
+/* ---------------- hive skin toggle ---------------- */
+function setHive(on){
+  HIVE=on; document.body.classList.toggle('hive',on);
+  document.getElementById('hivebtn').setAttribute('aria-pressed',String(on));
+  try{ localStorage.setItem('city-theme',on?'hive':'city'); }catch(e){}
+  pickDirty=true;
+}
+document.getElementById('hivebtn').addEventListener('click',()=>setHive(!HIVE));
+setHive(HIVE);
+
+/* ---------------- watchdog button ---------------- */
+function setWatch(v){
+  watchView=v;
+  document.body.classList.toggle('watching',!!v);
+  document.getElementById('watchbtn').setAttribute('aria-pressed',String(!!v));
+}
+document.getElementById('watchbtn').addEventListener('click',()=>{
+  if(mode!=='city') setView('city');
+  setWatch(watchView?null:'on');
+});
+
+/* ---------------- camera moves for the tour ---------------- */
+let camAnim=0;     // bumping it cancels a move in flight, so quick clicks never fight
+function animateCam(tg){
+  userMoved=true; pickDirty=true;
+  const id=++camAnim;
+  if(reduced){ Object.assign(cam,tg); return; }
+  const s0=cam.s,x0=cam.x,y0=cam.y,t0=performance.now();
+  (function step(now){
+    if(id!==camAnim) return;
+    const u=Math.min(1,(now-t0)/1000), e=u<.5?4*u*u*u:1-Math.pow(-2*u+2,3)/2;
+    cam.s=s0+(tg.s-s0)*e; cam.x=x0+(tg.x-x0)*e; cam.y=y0+(tg.y-y0)*e; pickDirty=true;
+    if(u<1) requestAnimationFrame(step);
+  })(performance.now());
+}
+function camFit(){
+  const keep={...cam}, um=userMoved; fitCity(); const tg={...cam};
+  Object.assign(cam,keep); userMoved=um; return tg;
+}
+// frame a set of agents (and brain stores, as 'store:id'), leaving room for the tour bar
+function camFor(ids,maxS){
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+  const add=p=>{x0=Math.min(x0,p.X);x1=Math.max(x1,p.X);y0=Math.min(y0,p.Y);y1=Math.max(y1,p.Y);};
+  ids.forEach(id=>{
+    if(String(id).startsWith('store:')){
+      const st=(BRAIN.stores||[]).find(s=>s.id===id.slice(6)); if(!st) return;
+      const p=proj(st.gx,st.gy,CLOUD_Z); add({X:p.X-160,Y:p.Y-40}); add({X:p.X+60,Y:p.Y+40}); return;
+    }
+    const a=AGENTS.find(a=>a.id===id); if(!a) return;
+    add(proj(a.gx-.8,a.gy+.8,0)); add(proj(a.gx+.8,a.gy-.8,0));
+    add(proj(a.gx,a.gy,baseOf(a)+heightOf(a)+70));
+  });
+  if(x0>x1) return camFit();
+  const tb=document.getElementById('topbar'), top=tb.offsetTop+tb.offsetHeight+20, bot=200, pad=60;
+  const s=Math.max(.35,Math.min(maxS||1.8,(W-pad*2)/(x1-x0),(H-top-bot)/(y1-y0)));
+  return {s, x:W/2-((x0+x1)/2)*s, y:top+(H-top-bot)/2-((y0+y1)/2)*s};
+}
+
+/* ---------------- the tour ---------------- */
+// Every number is read from the snapshot at the moment the scene shows, so the
+// script stays true whenever the city is rescanned.
+const failingIds=()=>AGENTS.filter(a=>a.state==='failing'||a.state==='misconfigured').map(a=>a.id);
+const quietFails=()=>AGENTS.filter(a=>a.state==='failing'&&a.last_exit===0);
+// the busiest district, the most-read store and the longest road, picked from the data
+const busiestDistrict=()=>{ const n={}; AGENTS.forEach(a=>{ if(a.state==='live') n[a.district]=(n[a.district]||0)+1; });
+  const d=Object.keys(n).sort((p,q)=>n[q]-n[p])[0]; return AGENTS.filter(a=>a.district===d).map(a=>a.id); };
+const topStore=()=>{ const n={}; (BRAIN.links||[]).forEach(l=>n[l.store]=(n[l.store]||0)+1);
+  return Object.keys(n).sort((p,q)=>n[q]-n[p])[0]; };
+const topReader=st=>{ const ls=(BRAIN.links||[]).filter(l=>l.store===st).sort((p,q)=>q.paths-p.paths); return ls[0]&&ls[0].agent; };
+const roadIds=()=>[...new Set((CITY.edges||[]).flatMap(e=>[e.from,e.to]))].slice(0,6);
+const SCENES=[
+  {title:'This is Agent City', cam:'fit',
+   text:()=>`Every building is one automation — <b>${AGENTS.length}</b> of them, grouped into `
+     +`districts by what they do. Nothing is drawn by hand: it is a scan of the real system.`},
+  {title:'Lit windows mean it ran', cam:()=>camFor(busiestDistrict(),1.4),
+   text:()=>`Taller buildings do more. <b>Lit windows</b> mean the job ran recently; `
+     +`dark windows mean it has gone quiet. You can read a district's health at a glance.`},
+  {title:'Smoke means it is failing', cam:()=>failingIds().length?camFor(failingIds(),1.3):camFit(),
+   focus:()=>failingIds().length?new Set(failingIds()):null,
+   tags:a=>(a.state==='failing'&&a.last_exit===0)?'exit 0 · still failing':'',
+   text:()=>{ const f=failingIds().length, q=quietFails().length;
+     return f ? `<b>${f}</b> automation${f>1?'s are':' is'} failing right now. They smoke, and the <b>!</b> marks `
+       +`something worth a look.`+(q?` <b>${q}</b> of them exited 0 — green to a monitor that only checks exit codes.`:'')
+       : 'Nothing is failing right now. When something does, it smokes, and a <b>!</b> floats over it.'; }},
+  {title:'Shared memory', cam:()=>{ const st=topStore(); return st?camFor(['store:'+st,topReader(st)].filter(Boolean),1.2):camFit(); },
+   hoverFn:()=>topReader(topStore()),
+   text:()=>(BRAIN.stores||[]).length
+     ? `The clouds are the folders your agents share. <b>Rain</b> shows who reads what. `
+       +`The <b>piers</b> on the shore are outside services that jobs call directly.`
+     : `Declare shared folders as <code>[[store]]</code> in agents.toml and they float here as clouds, `
+       +`raining on every agent that reads them.`},
+  {title:'Data on the move', cam:()=>roadIds().length?camFor(roadIds(),1.5):camFit(),
+   text:()=>`The walkers carry files from one automation to the next. More walkers means the sender `
+     +`ran more recently. A <b>red parcel</b> means the sender’s last run failed — so bad data travels.`},
+  {title:'Today, replayed', cam:'fit', feed:true,
+   text:()=>{ const n=EVENTS.filter(e=>!e.sub&&e.kind!=='scan').length, bad=EVENTS.filter(e=>e.kind==='bad').length;
+     return `Every run in the 24 hours before the scan, in order: <b>${n}</b> of them, each lighting its `
+       +`building as it plays. ${bad?`<b>${bad}</b> in red: ${bad>1?'they':'it'} ran, and did not do ${bad>1?'their':'its'} work.`:''}`; }},
+  {title:'Who is watching', cam:'fit', watch:'on',
+   text:()=>{ const c=watchCounts('on');
+     return `Running doesn't mean working. <b>${c.output}</b> of ${c.total} running jobs are checked on what `
+       +`they delivered (whole building lit), <b>${c.runs}</b> only on whether they ran (the door), `
+       +`and <b>${c.none}</b> by nobody (dark).`; }},
+  {title:'The Yards', mode:'yards',
+   text:()=>SITES.length?`Work in progress lives here, on three streets: <b>finish</b> it, `
+     +`<b>decide</b> about it, or <b>let it go</b>. An amber crane means a terminal is on it right now.`
+     :'List your project folders under <code>[yards]</code> in agents.toml and unfinished work shows up here.'},
+  {title:'One map, every automation', cam:'fit',
+   text:()=>`Running, failing, quiet, unwatched — all in one place, rebuilt from the system `
+     +`every time you scan.`},
+];
+let scene=-1;
+function showScene(n){
+  scene=Math.max(0,Math.min(SCENES.length-1,n));
+  const sc=SCENES[scene];
+  document.body.classList.add('touring');
+  if(replayTimer) stopReplay();
+  document.body.classList.toggle('feedscene',!!SCENES[Math.max(0,Math.min(SCENES.length-1,n))].feed);
+  select(-1); resize();                 // measure the stage after the inspector closes
+  setWatch(sc.watch||null);
+  tourFocus=sc.focus?sc.focus():null;
+  tourTags=sc.tags||null;
+  const hv=sc.hoverFn?sc.hoverFn():sc.hover;
+  hover=hv?AGENTS.findIndex(a=>a.id===hv):-1;
+  document.getElementById('ttitle').textContent=sc.title;
+  document.getElementById('ttext').innerHTML=sc.text();
+  document.getElementById('tcount').textContent=(scene+1)+' / '+SCENES.length;
+  document.getElementById('tdots').innerHTML=SCENES.map((_,i)=>`<i class="${i===scene?'on':''}"></i>`).join('');
+  document.getElementById('tprev').disabled=scene===0;
+  document.getElementById('tnext').textContent=scene===SCENES.length-1?'Finish':'Next \u2192';
+  const want=sc.mode||'city';
+  const move=()=>{ if(want==='city') animateCam(sc.cam==='fit'||!sc.cam?camFit():sc.cam()); };
+  camAnim++;                            // stop the previous scene's camera move
+  if(want!==mode){ setView(want); requestAnimationFrame(()=>requestAnimationFrame(move)); }
+  else move();
+  if(sc.feed){
+    if(!document.getElementById('feed').closest('#stage')) setTab('events');   // rail page: show the tab
+    setTimeout(()=>{ if(scene===SCENES.indexOf(sc) && !replayTimer) document.getElementById('freplay').click(); },900);
+  }
+}
+function endTour(){
+  if(replayTimer) stopReplay();
+  document.body.classList.remove('touring','feedscene');
+  scene=-1; tourFocus=null; tourTags=null; hover=-1; setWatch(null);
+  if(mode!=='city') setView('city'); else animateCam(camFit());
+}
+document.getElementById('tourbtn').addEventListener('click',()=>showScene(0));
+document.getElementById('tnext').addEventListener('click',()=>scene>=SCENES.length-1?endTour():showScene(scene+1));
+document.getElementById('tprev').addEventListener('click',()=>showScene(scene-1));
+document.getElementById('texit').addEventListener('click',endTour);
+// arrow keys, space and a presentation clicker (PageDown/PageUp) drive the tour
+addEventListener('keydown',e=>{
+  if(!document.body.classList.contains('touring')||e.target.matches?.('input,textarea')) return;
+  if(['ArrowRight','PageDown',' '].includes(e.key)){ e.preventDefault();
+    scene>=SCENES.length-1?endTour():showScene(scene+1); }
+  if(['ArrowLeft','PageUp'].includes(e.key)){ e.preventDefault(); showScene(scene-1); }
+  if(e.key==='Escape') endTour();
+});
+// while touring, the hover that a scene set stays put; the mouse does not knock it off
+cv.addEventListener('pointermove',()=>{ const sc=SCENES[scene];
+  const hv=sc&&(sc.hoverFn?sc.hoverFn():sc.hover);
+  if(document.body.classList.contains('touring')&&hv) hover=AGENTS.findIndex(a=>a.id===hv); });
+
+/* ---------------- event feed ----------------
+   A replay of the latest scan, built only from timestamps the scan recorded: each
+   job's last run and how it ended, the files its run handed to the jobs that read
+   them, the watchdog's last pass. Nothing is invented and nothing is live — the
+   header says when the scan was taken. */
+const CAUSE_RX=[[/credit balance|credit ran out/i,'the AI credit had run out'],
+  [/x-api-key|authentication|401|403|rejected/i,'an access key was rejected'],
+  [/invalid_grant|expired|re-?auth|login/i,'a login had expired']];
+function causeOf(e){ for(const [rx,w] of CAUSE_RX) if(rx.test(e)) return w; return 'it logged an error'; }
+const RESIDENT=a=>/resident|always-on/i.test(a.schedule||'');
+function buildEvents(){
+  const gen=Date.parse(CITY.generated)||Date.now(), out=[];
+  AGENTS.forEach(live=>{
+    const a=live._scan?{...live,...live._scan}:live;      // as the scan saw it
+    if(a.hours_ago==null||a.hours_ago>24||RESIDENT(a)) return;
+    const at=a.last_run_iso?Date.parse(a.last_run_iso):gen-a.hours_ago*3600e3;
+    let kind='ok', text=`<b>${esc(a.name)}</b> ran`;
+    if(isWD(a)){ kind='watch';
+      text=`<b>${esc(a.name)}</b> checked ${watchCounts('on').total} jobs`; }
+    else if(a.last_exit && a.state==='failing'){ kind='bad';
+      text=`<b>${esc(a.name)}</b> failed (exit ${a.last_exit})`; }
+    else if((a.run_errors||[]).length){ kind='bad';
+      text=`<b>${esc(a.name)}</b> ran and said OK \u2014 but ${causeOf(a.run_errors[0])}`; }
+    out.push({at,kind,text,id:a.id});
+    const to=[...new Set(ROADS.filter(r=>r.from===a.id).map(r=>r.to))];
+    if(to.length && kind!=='bad'){
+      const n=ROADS.filter(r=>r.from===a.id).reduce((k,r)=>k+r.files.length,0);
+      out.push({at:at-1,kind:'flow',sub:true,id:a.id,     // -1: lists just under its run
+        text:`\u21b3 handed ${n} file${n>1?'s':''} to ${to.map(esc).join(', ')}`});
+    }
+  });
+  out.push({at:gen,kind:'scan',text:'<b>Agent City</b> scanned the system',id:null});
+  // live runs pushed since the scan (data/live_feed.json -> the page's db), newest first
+  ((LIVE&&LIVE.events)||[]).forEach(e=>{
+    const at=Date.parse(e.at); if(!(at>gen)) return;
+    const nm=`<b>${esc(e.id)}</b>`, live=true;
+    const text = e.kind==='recover' ? `${nm} recovered \u2014 its last run worked`
+      : e.kind==='watch' ? `${nm} checked ${watchCounts('on').total} jobs`
+      : e.kind==='bad' ? (/credit|key|login/.test(e.cause||'') ? `${nm} ran and said OK \u2014 but ${esc(e.cause)}`
+                                                              : `${nm} failed \u2014 ${esc(e.cause||'')}`)
+      : `${nm} ran`;
+    out.push({at,kind:e.kind,text,id:e.id,live});
+    if(e.to&&e.to.length) out.push({at:at-1,kind:'flow',sub:true,id:e.id,live,
+      text:`\u21b3 handed ${e.files} file${e.files>1?'s':''} to ${e.to.map(esc).join(', ')}`});
+  });
+  return out.sort((p,q)=>q.at-p.at);
+}
+const KIND_COL={ok:'#fff0d6',bad:'#ff6b5e',flow:'#c4a7ff',watch:'#ffe7b0',scan:'#6fb6ff',recover:'#37ca37'};
+let EVENTS=[];
+function renderFeed(){
+  EVENTS=buildEvents();
+  const gen=new Date(Date.parse(CITY.generated)||Date.now());
+  const fmt=d=>d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hour12:false});
+  // day headings go by the viewer's clock, not the scan's: last night's runs read "yesterday"
+  const today=new Date(), yday=new Date(today.getTime()-864e5);
+  const dayOf=d=>d.toDateString()===today.toDateString()?'today'
+    :d.toDateString()===yday.toDateString()?'yesterday'
+    :d.toLocaleDateString([], {weekday:'long',month:'short',day:'numeric'});
+  const when=d=>(dayOf(d)==='today'?'':dayOf(d)+' ')+fmt(d);
+  const bad=EVENTS.filter(e=>e.kind==='bad').length;
+  const liveN=EVENTS.filter(e=>e.live&&!e.sub).length, upd=LIVE&&Date.parse(LIVE.updated_at);
+  const fresh=upd && Date.now()-upd < 30*60e3;
+  document.getElementById('fsub').innerHTML =
+    (LIVE_ERR && !(upd && fresh)) ? `<span class="pausedot"></span>${esc(LIVE_ERR)}`
+    : upd && fresh
+    ? `<span class="livedot"></span>LIVE \u00b7 updated ${fmt(new Date(upd))} \u00b7 `
+      +`${liveN} run${liveN===1?'':'s'} since the ${when(gen)} scan`+(bad?` \u00b7 ${bad} went wrong`:'')
+    : upd
+    ? `<span class="pausedot"></span>Live feed off since ${when(new Date(upd))} \u00b7 `
+      +`showing the ${when(gen)} scan`+(bad?` \u00b7 ${bad} went wrong`:'')
+    : `${EVENTS.filter(e=>!e.sub&&e.kind!=='scan').length} runs in the 24h before the ${when(gen)} scan`
+      +(bad?` \u00b7 ${bad} went wrong`:'');
+  let lastDay='', html='';
+  EVENTS.forEach((e,n)=>{
+    const d=new Date(e.at), day=dayOf(d);
+    if(day!==lastDay){ html+=`<li class="day">${day}</li>`; lastDay=day; }
+    html+=`<li data-n="${n}" class="${e.sub?'sub':''}${e.live?' live':''}"><time>${e.sub?'':fmt(d)}</time>`
+      +`<i style="background:${KIND_COL[e.kind]}"></i><span>${e.text}</span></li>`;
+  });
+  const el=document.getElementById('flist'); el.innerHTML=html;
+  el.querySelectorAll('li[data-n]').forEach(li=>{
+    const e=EVENTS[+li.dataset.n];
+    li.addEventListener('mouseenter',()=>{ if(e.id) hover=AGENTS.findIndex(a=>a.id===e.id); });
+    li.addEventListener('mouseleave',()=>{ hover=-1; });
+    li.addEventListener('click',()=>{ if(e.id) flyTo(e.id); });
+  });
+}
+// minimized or expanded; remembered per viewer (a convenience, never required)
+function setFeedMin(min){
+  document.body.classList.toggle('feedmin',min);
+  const b=document.getElementById('fmin');
+  b.innerHTML=min?'+':'&minus;'; b.title=min?'Expand':'Minimize';
+  b.setAttribute('aria-label',min?'Expand the feed':'Minimize the feed');
+  try{ localStorage.setItem('city-feed-min',min?'1':'0'); }catch(e){}
+  if(min && replayTimer) stopReplay();
+  if(!userMoved) requestAnimationFrame(()=>{ resize(); fitCity(); });
+}
+const feedForcedMin=()=>['touring','yardview','fieldview'].some(c=>document.body.classList.contains(c));
+document.getElementById('fmin').addEventListener('click',e=>{
+  e.stopPropagation(); setFeedMin(!document.body.classList.contains('feedmin')); });
+const expandFeed=()=>{ if(feedForcedMin()) return; if(document.body.classList.contains('feedmin')) setFeedMin(false); };
+document.querySelector('#feed .fh').addEventListener('click',e=>{ if(!e.target.closest('button')) expandFeed(); });
+document.getElementById('ftick').addEventListener('click',expandFeed);
+// the minimized line cycles through the newest runs, so the feed is never blank
+let tickN=0;
+function tick(){
+  const el=document.getElementById('ftick'), top=EVENTS.filter(e=>!e.sub).slice(0,8);
+  if(!top.length) return;
+  const e=top[tickN%top.length]; tickN++;
+  const d=new Date(e.at);
+  const html=`<time>${d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hour12:false})}</time>`
+    +`<i style="background:${KIND_COL[e.kind]}"></i>${e.text}`;
+  if(reduced){ el.innerHTML=html; return; }
+  el.style.opacity=0; setTimeout(()=>{ el.innerHTML=html; el.style.opacity=1; },250);
+}
+setInterval(()=>{ if(!reduced) tick(); },4000);
+// Replay: the day again, oldest first, each run lighting its building in turn
+let replayTimer=null;
+function stopReplay(){
+  clearTimeout(replayTimer); replayTimer=null; hover=-1;
+  document.getElementById('freplay').setAttribute('aria-pressed','false');
+  document.getElementById('freplay').innerHTML='&#9654; Replay';
+  document.querySelectorAll('#flist li.now').forEach(li=>li.classList.remove('now'));
+}
+document.getElementById('freplay').addEventListener('click',()=>{
+  if(replayTimer){ stopReplay(); return; }
+  const order=EVENTS.map((e,n)=>n).filter(n=>!EVENTS[n].sub).reverse();
+  const btn=document.getElementById('freplay');
+  btn.setAttribute('aria-pressed','true'); btn.innerHTML='&#9632; Stop';
+  let k=0;
+  (function step(){
+    document.querySelectorAll('#flist li.now').forEach(li=>li.classList.remove('now'));
+    if(k>=order.length){ stopReplay(); return; }
+    const e=EVENTS[order[k]], li=document.querySelector(`#flist li[data-n="${order[k]}"]`);
+    if(li){ li.classList.add('now'); li.scrollIntoView({block:'nearest',behavior:reduced?'auto':'smooth'}); }
+    hover=e.id?AGENTS.findIndex(a=>a.id===e.id):-1;
+    k++; replayTimer=setTimeout(step,e.kind==='bad'?1800:1100);
+  })();
+});
+
+/* The page is a snapshot: rescan and rebuild to refresh it (see the README for
+   running that on a schedule). LIVE stays null; renderFeed reads it if a fork adds
+   a live source. */
+let LIVE=null, LIVE_ERR=null;
+
+/* ---------------- rail tabs ---------------- */
+function setTab(name){
+  document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===name)));
+  document.querySelectorAll('.col.left .pane').forEach(p=>p.classList.toggle('on',p.id==='pane-'+name));
+  try{ localStorage.setItem('city-tab',name); }catch(e){}
+}
+document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
+// With a rail (the normal page) the feed is its Events tab; in ?present mode there is
+// no rail, so the feed floats on the map.
+if(!PRESENT) document.getElementById('pane-events').appendChild(document.getElementById('feed'));
+try{ const t=localStorage.getItem('city-tab'); if(t) setTab(t); }catch(e){}
+
+/* ---------------- first visit: what am I looking at ---------------- */
+(function(){
+  const card=document.getElementById('intro');
+  let seen=false; try{ seen=localStorage.getItem('city-intro-seen')==='1'; }catch(e){}
+  const open=()=>{ card.hidden=false; };
+  const close=()=>{ card.hidden=true; try{localStorage.setItem('city-intro-seen','1');}catch(e){} };
+  if(!seen && !PRESENT) open();
+  document.getElementById('introok').addEventListener('click',close);
+  document.getElementById('zhelp').addEventListener('click',()=>card.hidden?open():close());
+})();
+
+/* ---------------- boot ---------------- */
+let rt=null;
+document.getElementById('iclose').addEventListener('click',()=>select(-1));
+function relayout(refit){ resize(); if(refit) fitCity(); }
+addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>relayout(true),120);});
+if(PRESENT) document.body.classList.add('present');
+if(CITY.demo) document.body.classList.add('demo');
+document.getElementById('cityname').textContent=CITY.city_name||'Agent City';
+document.getElementById('scanned').textContent='scanned '+(CITY.generated_local||'?')+(CITY.demo?' \u00b7 made-up demo data':'');
+try{ if(localStorage.getItem('city-feed-min')==='1') setFeedMin(true); }catch(e){}
+renderFindings(); renderChips(); applyFilters(); renderFeed(); tick(); select(-1); relayout(true);
+// open on the thing most worth looking at, so the page starts in a working state
+(function(){
+  const first=(CITY.findings.find(f=>f.sev==='crit'&&f.agent)
+            || CITY.findings.find(f=>f.agent));
+  if(first && !PRESENT) select(AGENTS.findIndex(a=>a.id===first.agent));
+})();
+// the first measurement can land before fonts and the grid have settled
+requestAnimationFrame(()=>relayout(true));
+addEventListener('load',()=>relayout(true));
+if(window.ResizeObserver){
+  let first=true;
+  new ResizeObserver(()=>{ relayout(first||!userMoved); first=false; })
+    .observe(document.getElementById('stage'));
+}
+(function loop(){
+  t=performance.now();
+  if(!document.body.classList.contains('fieldview')) draw();   // the canvas rests in field view
+  requestAnimationFrame(loop);
+})();
+</script>
