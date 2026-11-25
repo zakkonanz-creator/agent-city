@@ -31,14 +31,22 @@ own city will use, and opens it in your browser.
 
 ## Map your own agents
 
-1. **Copy the example config.**
+1. **Write a starter config from what's already running.**
    ```bash
-   cp examples/agents.example.toml agents.toml
+   python3 scan.py --init
    ```
-   `agents.toml` is git-ignored, so your setup stays on your machine.
+   That reads your crontab, your own launchd agents (macOS) and your systemd user timers
+   (Linux), and writes `agents.toml` with one `[[agent]]` per job: how to find it, its
+   schedule and its log file where the job names one. `agents.toml` is git-ignored, so
+   your setup stays on your machine. Run `python3 scan.py && python3 build.py --open`
+   now and you already have a city.
 
-2. **List your agents.** Each `[[agent]]` needs an `id`. Everything else is optional,
-   but the more you say about where to look, the more the city can tell you:
+   Starting from scratch instead? `cp examples/agents.example.toml agents.toml`. It
+   shows every key.
+
+2. **Fill in what the scan can't know.** Give each agent a `purpose`, sort them into
+   districts, and add `reads` / `writes` / `talks_to`. Only `id` is required. The more
+   you say, the more the city can tell you:
 
    ```toml
    [[agent]]
@@ -67,14 +75,14 @@ own city will use, and opens it in your browser.
    `log`, a `health_url` or a `check`. "N jobs running that are not on the map" means
    your crontab has jobs you haven't listed.
 
-**Shortcut:** let Claude Code write the first draft. In the folder where your agents
+**Shortcut:** let Claude Code fill in the rest. In the folder where your agents
 live, run `claude` and paste:
 
-> Read examples/agents.example.toml from ~/agent-city (or wherever you cloned it). Then look at my
-> crontab, my launchd agents / systemd timers, and the scripts and logs in this folder, and write
-> ~/agent-city/agents.toml with one [[agent]] per job: id, district, a one-line purpose, how to
-> find it (cron / launchd / systemd), its log, a run_marker if its log has one, and what it reads
-> and writes. Don't guess a log path you can't see; leave it out and tell me.
+> Read ~/agent-city/examples/agents.example.toml and ~/agent-city/agents.toml (use the path where
+> you cloned it). For each [[agent]] in agents.toml, open the script it runs and fill in a one-line
+> purpose, a district, what it reads and writes, which outside services it talks to, and a
+> run_marker if its log prints one. Group the agents into 3 to 6 districts. Don't guess a path
+> you can't see; leave it out and tell me.
 
 ## What each probe reads
 

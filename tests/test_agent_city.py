@@ -125,6 +125,15 @@ class Scan(unittest.TestCase):
         self.assertEqual([(e["from"], e["to"]) for e in snap["edges"]], [("w", "r")])
 
 
+class Init(unittest.TestCase):
+    def test_starter_config_parses(self):
+        import init_config
+        text, n = init_config.starter()
+        cfg = config.parse(text)
+        self.assertEqual(len(cfg.get("agent", [])), n)
+        self.assertEqual(cfg["district"][0]["id"], "main")
+
+
 class Demo(unittest.TestCase):
     def test_demo_builds(self):
         snap = demo.snapshot()

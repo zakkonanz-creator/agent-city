@@ -205,8 +205,8 @@ def probe_agent(spec, ctx):
     if a["err"] and a["err"]["size"] > 0:
         # an error log counts only when it moved during the latest run
         if a["last_run"] is None or a["err"]["mtime"] >= a["last_run"] - 300:
-            hits = [l.strip() for l in a["err"]["tail"] if err_rx.search(l)] or \
-                   [l.strip() for l in a["err"]["tail"][-1:]]
+            # stderr also carries warnings and progress, so only error-shaped lines count
+            hits = [l.strip() for l in a["err"]["tail"] if err_rx.search(l)]
             if hits:
                 a["errors"].append(_untimed(hits[-1])[:220])
         a["last_run"] = max(a["last_run"] or 0, a["err"]["mtime"])
@@ -717,7 +717,16 @@ def main(argv=None):
     ap.add_argument("--no-sessions", action="store_true", help="skip the Yards")
     ap.add_argument("--redact-report", action="store_true")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--init", action="store_true",
+                    help="write a starter agents.toml from this machine's cron/launchd/systemd jobs")
     args = ap.parse_args(argv)
+    if args.init:
+        import init_config
+        n = init_config.write(args.config)
+        print("wrote %s with %d job%s found on this machine." % (os.path.relpath(args.config),
+                                                                 n, "" if n == 1 else "s"))
+        print("Add a purpose (and reads/writes) to each, then: python3 scan.py && python3 build.py --open")
+        return
     try:
         cfg = config_mod.load(args.config)
         snap = scan(cfg, with_sessions=not args.no_sessions, quiet=args.quiet)
