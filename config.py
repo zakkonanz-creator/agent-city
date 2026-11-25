@@ -26,7 +26,7 @@ class ConfigError(Exception):
 def load(path):
     path = os.path.expanduser(path)
     if not os.path.exists(path):
-        raise ConfigError("no config at %s (copy examples/agents.example.toml to agents.toml)" % path)
+        raise ConfigError("no config at %s. Start one with: python3 scan.py --init   (or try the demo: python3 build.py --demo --open)" % path)
     if path.endswith(".json"):
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
