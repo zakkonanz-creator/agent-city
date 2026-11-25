@@ -15,7 +15,7 @@ exits 0 every hour while logging `401 Unauthorized`. In a city, a dead job *look
 dead from across the room.
 
 - One HTML file. No server, no database, no account.
-- Python 3.9+ standard library only. Nothing to install.
+- Python 3.9+ (the one that ships with macOS works), standard library only. Nothing to install.
 - It only reads. The scan never changes a job, a crontab or a file outside this folder.
 
 ## Try the demo (30 seconds)
